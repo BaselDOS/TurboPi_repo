@@ -85,6 +85,7 @@ class WebControlNode(Node):
         )
 
         self.create_timer(0.05, self.camera_loop)
+        self.create_timer(0.05, self.twist_loop)
 
         # Routes
         self.app.add_url_rule('/', 'index', self.index)
@@ -106,6 +107,21 @@ class WebControlNode(Node):
 
     def run_page(self):
         return render_template('run.html')
+
+    def twist_loop(self):
+
+        twist = Twist()
+
+        if self.rotate_dir == 1:
+            twist.angular.z = -1.0
+
+        elif self.rotate_dir == -1:
+            twist.angular.z = 1.0
+
+        else:
+            twist.angular.z = 0.0
+
+        self.cmd_vel_pub.publish(twist)
 
     def api_status(self):
 
