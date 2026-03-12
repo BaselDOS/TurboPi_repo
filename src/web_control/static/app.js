@@ -333,36 +333,44 @@ function sendRotation(dir) {
 }
 rotateCW.addEventListener('mousedown', () => {
     rotateStatus.textContent = "CW";
+    sendRotation("cw");
 });
 
 rotateCCW.addEventListener('mousedown', () => {
     rotateStatus.textContent = "CCW";
+    sendRotation("ccw");
 });
 
 rotateCW.addEventListener('mouseup', () => {
     rotateStatus.textContent = "";
+    sendRotation("stop");
 });
 
 rotateCCW.addEventListener('mouseup', () => {
     rotateStatus.textContent = "";
+    sendRotation("stop");
 });
 
 rotateCW.addEventListener('touchstart', (e) => {
     e.preventDefault();
     rotateStatus.textContent = "CW";
+    sendRotation("cw");
 });
 
 rotateCW.addEventListener('touchend', () => {
     rotateStatus.textContent = "";
+    sendRotation("stop");
 });
 
 rotateCCW.addEventListener('touchstart', (e) => {
     e.preventDefault();
     rotateStatus.textContent = "CCW";
+    sendRotation("ccw");
 });
 
 rotateCCW.addEventListener('touchend', () => {
     rotateStatus.textContent = "";
+    sendRotation("stop");
 });
 }
 return { initHome, initRun };
