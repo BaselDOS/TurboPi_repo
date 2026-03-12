@@ -221,34 +221,58 @@ function initJoystick() {
   let lastSend = 0;  
   manager.on('move', function(evt, data) {
 
-  if (!data.vector) return;
+    if (!data.vector) return;
 
-  let x = data.vector.x;
-  let y = data.vector.y;
+    let x = data.vector.x;
+    let y = data.vector.y;
 
-  const deadzone = 0.15;
+    const deadzone = 0.15;
 
-  if (Math.abs(x) < deadzone) x = 0;
-  if (Math.abs(y) < deadzone) y = 0;
+    if (Math.abs(x) < deadzone) x = 0;
+    if (Math.abs(y) < deadzone) y = 0;
 
-  x = x.toFixed(2);
-  y = y.toFixed(2);
+    x = parseFloat(x.toFixed(2));
+    y = parseFloat(y.toFixed(2));
 
-  if (joyX) joyX.textContent = x;
-  if (joyY) joyY.textContent = y;
+    if (joyX) joyX.textContent = x;
+    if (joyY) joyY.textContent = y;
 
-  console.log("Joystick:", x, y);
+    console.log("Joystick:", x, y);
 
-});
+    const now = Date.now();
+
+    if (now - lastSend > 100) {
+
+        fetch('/api/move', {
+         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            x: x,
+            y: y
+        })
+        });
+
+        lastSend = now;
+    }
+
+    });
 manager.on('end', function() {
 
   if (joyX) joyX.textContent = "0.00";
   if (joyY) joyY.textContent = "0.00";
 
+  fetch('/api/move', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      x: 0,
+      y: 0
+    })
+  });
+
   console.log("Joystick released");
 
 });
-
 // CAMERA JOYSTICK
 const camZone = document.getElementById('camJoystick');
 const camX = document.getElementById('camX');

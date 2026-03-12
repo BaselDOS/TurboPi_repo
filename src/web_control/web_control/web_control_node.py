@@ -45,7 +45,8 @@ class WebControlNode(Node):
         self.camera_index = 0
         self.frame = None
         self.frame_lock = threading.Lock()
-
+        self.move_x = 0.0
+        self.move_y = 0.0
         # Battery check
         self.battery_voltage = None
         self.create_subscription(
@@ -86,6 +87,7 @@ class WebControlNode(Node):
 
         self.create_timer(0.05, self.camera_loop)
         self.create_timer(0.05, self.twist_loop)
+        self.create_timer(0.05, self.movement_loop)
 
         # Routes
         self.app.add_url_rule('/', 'index', self.index)
@@ -95,6 +97,7 @@ class WebControlNode(Node):
         self.app.add_url_rule('/api/stop_node', 'stop_node', self.api_stop_node, methods=['POST'])
         self.app.add_url_rule('/api/camera', 'camera_control', self.api_camera_control, methods=['POST'])
         self.app.add_url_rule('/api/rotate', 'rotate', self.api_rotate, methods=['POST'])
+        self.app.add_url_rule('/api/move', 'move', self.api_move, methods=['POST'])
 
         # Start server thread
         t = threading.Thread(target=self._run_server, daemon=True)
@@ -108,18 +111,37 @@ class WebControlNode(Node):
     def run_page(self):
         return render_template('run.html')
 
+    def movement_loop(self):
+
+        twist = Twist()
+
+        twist.linear.x = self.move_y * 0.6
+        twist.linear.y = -self.move_x * 0.6
+
+        self.cmd_vel_pub.publish(twist)
+
+    def api_move(self):
+
+        data = request.json
+
+        self.move_x = float(data.get("x", 0))
+        self.move_y = float(data.get("y", 0))
+
+        return jsonify({"status": "ok"})
+
     def twist_loop(self):
 
         twist = Twist()
 
         if self.rotate_dir == 1:
-            twist.angular.z = -1.0
+            twist.angular.z = -8.0
+            twist.linear.x = 0.0
+            twist.linear.y = 0.0
 
         elif self.rotate_dir == -1:
-            twist.angular.z = 1.0
-
-        else:
-            twist.angular.z = 0.0
+            twist.angular.z = 8.0
+            twist.linear.x = 0.0
+            twist.linear.y = 0.0
 
         self.cmd_vel_pub.publish(twist)
 
