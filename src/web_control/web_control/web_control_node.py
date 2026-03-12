@@ -17,7 +17,7 @@ from cv_bridge import CvBridge
 from ros_robot_controller_msgs.msg import SetPWMServoState, PWMServoState
 
 import subprocess
-
+from geometry_msgs.msg import Twist
 
 class WebControlNode(Node):
 
@@ -55,12 +55,20 @@ class WebControlNode(Node):
             10
         )
         
-
+        #servo_pub
         self.servo_pub = self.create_publisher(
             SetPWMServoState,
             '/ros_robot_controller/pwm_servo/set_state',
             10
         )
+
+        #Twist_pub
+        self.cmd_vel_pub = self.create_publisher(
+            Twist,
+            '/cmd_vel',
+            10
+            )
+        self.rotate_dir = 0
 
         self.cam_pan = 0
         self.cam_tilt = 0
@@ -85,6 +93,7 @@ class WebControlNode(Node):
         self.app.add_url_rule('/api/run_node', 'run_node', self.api_run_node, methods=['POST'])
         self.app.add_url_rule('/api/stop_node', 'stop_node', self.api_stop_node, methods=['POST'])
         self.app.add_url_rule('/api/camera', 'camera_control', self.api_camera_control, methods=['POST'])
+        self.app.add_url_rule('/api/rotate', 'rotate', self.api_rotate, methods=['POST'])
 
         # Start server thread
         t = threading.Thread(target=self._run_server, daemon=True)
@@ -262,7 +271,8 @@ class WebControlNode(Node):
 
         pan = float(data.get("x", 0))
         tilt = float(data.get("y", 0))
-
+        self.cam_pan = pan
+        self.cam_tilt = tilt
         return jsonify({"status": "ok"})
 
     def generate_frames(self):
@@ -296,6 +306,24 @@ class WebControlNode(Node):
                 b'\r\n')
 
             time.sleep(0.03)
+
+
+    def api_rotate(self):
+
+        data = request.json
+        direction = data.get("direction")
+
+        if direction == "cw":
+            self.rotate_dir = 1
+
+        elif direction == "ccw":
+            self.rotate_dir = -1
+
+        else:
+            self.rotate_dir = 0
+
+        return jsonify({"status": "ok"})
+
 def main(args=None):
 
     rclpy.init(args=args)

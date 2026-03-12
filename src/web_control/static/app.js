@@ -321,6 +321,16 @@ camManager.on('end', function() {
     console.log("Camera joystick released");
 
 });
+
+function sendRotation(dir) {
+
+    fetch('/api/rotate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ direction: dir })
+    });
+
+}
 rotateCW.addEventListener('mousedown', () => {
     rotateStatus.textContent = "CW";
 });
