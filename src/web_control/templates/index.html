@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Project Name</title>
+  <!--<link rel="stylesheet" href="../static/style.css"> -->
+  <link rel="stylesheet" href="../static/style.css">
+  
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-title">PROJECT NAME</div>
+    <div class="brand-sub">Project Description</div>
+  </div>
+
+  <button class="btn btn-ghost" id="refreshBtn" title="Refresh status">
+    Refresh
+  </button>
+</header>
+
+<main class="container">
+
+  <!-- Error Banner (edge case) -->
+  <section id="errorBanner" class="banner banner-danger hidden">
+    <div class="banner-title">Status Error</div>
+    <div class="banner-text" id="errorText">
+      Unable to fetch system status.
+    </div>
+    <button class="btn btn-danger" id="reloadBtn">Reload Page</button>
+  </section>
+
+  <!-- Primary actions -->
+  <section class="panel">
+    <div class="panel-title">Quick Actions</div>
+
+    <div class="actions">
+      <!-- 1) Robot info -->
+      <a class="action action-blue" href="https://www.hiwonder.com/products/turbopi" target="_blank" rel="noopener">
+        <div class="action-icon">🤖</div>
+        <div class="action-body">
+          <div class="action-title">TurboPi Robot Info</div>
+          <div class="action-sub">Official page + robot overview</div>
+        </div>
+        <div class="action-arrow">›</div>
+      </a>
+
+      <!-- 2) Run page -->
+      <a class="action action-green" href="/run">
+        <div class="action-icon">⚡</div>
+        <div class="action-body">
+          <div class="action-title">Launch Control</div>
+          <div class="action-sub">Choose operation mode and start</div>
+        </div>
+        <div class="action-arrow">›</div>
+      </a>
+
+      <!-- 3) Repo / Book -->
+      <a class="action action-purple" href="https://github.com/Hiwonder" target="_blank" rel="noopener">
+        <div class="action-icon">📘</div>
+        <div class="action-body">
+          <div class="action-title">Project Repository</div>
+          <div class="action-sub">Docs / GitHub / project book</div>
+        </div>
+        <div class="action-arrow">›</div>
+      </a>
+    </div>
+  </section>
+
+  <!-- Status -->
+  <section class="panel">
+    <div class="panel-title">System Status</div>
+
+    <div class="status-grid">
+      <div class="status-card" id="wifiCard">
+        <div class="status-k">WiFi</div>
+        <div class="status-v" id="wifiVal">—</div>
+      </div>
+
+      <div class="status-card">
+        <div class="status-k">IP</div>
+        <div class="status-v mono" id="ipVal">—</div>
+      </div>
+
+      <div class="status-card" id="rosCard">
+        <div class="status-k">ROS</div>
+        <div class="status-v" id="rosVal">—</div>
+      </div>
+
+      <div class="status-card" id="batCard">
+        <div class="status-k">Battery</div>
+        <div class="status-v" id="batVal">—</div>
+      </div>
+
+      <div class="status-card" id="camCard">
+        <div class="status-k">Camera</div>
+        <div class="status-v" id="camVal">—</div>
+      </div>
+    </div>
+
+    <div class="panel-foot">
+      If a value is unavailable, it will be shown as <span class="mono">N/A</span>.
+    </div>
+  </section>
+
+</main>
+
+<script src="/static/app.js"></script>
+<script>
+  // Home page init
+  App.initHome();
+</script>
+</body>
+</html>

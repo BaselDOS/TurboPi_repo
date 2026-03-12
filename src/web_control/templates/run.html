@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Launch Control</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+<header class="topbar">
+
+<a class="btn btn-ghost" href="/">← Home</a>
+
+<div class="brand">
+<div class="brand-title">LAUNCH CONTROL</div>
+<div class="brand-sub">Select an operation mode</div>
+</div>
+
+<button class="btn btn-ghost" id="refreshBtn">Refresh</button>
+
+</header>
+
+<main class="container">
+
+<section id="errorBanner" class="banner banner-danger hidden">
+
+<div class="banner-title">Status Error</div>
+<div class="banner-text" id="errorText">Unable to fetch system status.</div>
+<button class="btn btn-danger" id="reloadBtn">Reload Page</button>
+
+</section>
+
+<section class="panel">
+
+<div class="panel-title">Mode Selection</div>
+
+<div class="mode-grid">
+
+<!-- Body Control -->
+<button class="mode-card" data-mode="body_control">
+<div class="mode-title">Body Control</div>
+<div class="mode-sub">Control robot using body gestures (MediaPipe)</div>
+</button>
+
+<!-- Pose Detection -->
+<button class="mode-card" data-mode="pose">
+<div class="mode-title">Pose Detection</div>
+<div class="mode-sub">Detect body pose and visualize skeleton</div>
+</button>
+
+<!-- Joystick -->
+<button class="mode-card" data-mode="joystick">
+<div class="mode-title">Joystick Control</div>
+<div class="mode-sub">Manual driving using virtual joystick</div>
+</button>
+
+</div>
+
+</section>
+
+<div class="panel-foot">
+Current selection: <span class="mono" id="selectedMode">none</span>
+</div>
+
+<div class="actions" style="margin-top:12px;">
+
+<button class="action action-green" id="startBtn" style="border:none;">
+
+<div class="action-icon">▶</div>
+
+<div class="action-body">
+<div class="action-title">Start Selected Mode</div>
+<div class="action-sub">In next step, this will launch real ROS nodes</div>
+</div>
+
+<div class="action-arrow">›</div>
+
+</button>
+
+<button class="action action-red" id="stopBtn" style="border:none;">
+
+<div class="action-icon">■</div>
+
+<div class="action-body">
+<div class="action-title">Stop</div>
+<div class="action-sub">Stop current running node</div>
+</div>
+
+<div class="action-arrow">›</div>
+
+</button>
+
+</div>
+
+<section id="joystickPanel" class="panel hidden">
+
+<div class="panel-title">Joystick Control</div>
+
+<!-- camera video -->
+<div class="video-block">
+<div class="video-title">CAMERA</div>
+<img id="cameraFeed" src="/stream" />
+</div>
+
+<div class="control-grid">
+
+<!-- move joystick -->
+<div class="joystick-area">
+
+  <div id="moveJoystick"></div>
+
+  <div class="joy-label">MOVE</div>
+
+  <div class="joystick-info">
+    <div>X: <span id="joyX">0</span></div>
+    <div>Y: <span id="joyY">0</span></div>
+  </div>
+
+</div>
+<!-- rotation buttons -->
+<div class="rotate-block">
+
+<div class="rotate-label">ROTATE</div>
+
+<div class="rotate-controls">
+<button id="rotateCCW" class="rotate-btn">↺</button>
+<button id="rotateCW" class="rotate-btn">↻</button>
+</div>
+
+<div class="rotate-status">
+<span id="rotateStatus"></span>
+</div>
+
+</div>
+
+
+
+<!-- camera joystick -->
+<div class="joystick-area">
+
+  <div id="camJoystick"></div>
+
+  <div class="joy-label">CAMERA</div>
+
+  <div class="joystick-info">
+    <div>X: <span id="camX">0</span></div>
+    <div>Y: <span id="camY">0</span></div>
+  </div>
+
+</div>
+
+</div>
+
+</section>
+
+<section class="panel">
+
+<div class="panel-title">System Status</div>
+
+<div class="status-grid">
+
+<div class="status-card" id="wifiCard">
+<div class="status-k">Wifi</div>
+<div class="status-v" id="wifiVal">—</div>
+</div>
+
+<div class="status-card">
+<div class="status-k">IP</div>
+<div class="status-v mono" id="ipVal">—</div>
+</div>
+
+<div class="status-card" id="rosCard">
+<div class="status-k">ROS</div>
+<div class="status-v" id="rosVal">—</div>
+</div>
+
+<div class="status-card" id="batCard">
+<div class="status-k">Battery</div>
+<div class="status-v" id="batVal">—</div>
+</div>
+
+<div class="status-card" id="camCard">
+<div class="status-k">Camera</div>
+<div class="status-v" id="camVal">—</div>
+</div>
+
+</div>
+
+</section>
+
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.9.0/nipplejs.min.js"></script>
+<script src="/static/app.js"></script>
+
+<script>
+App.initRun();
+</script>
+
+</body>
+</html>
