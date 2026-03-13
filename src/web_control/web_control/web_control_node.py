@@ -4,8 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
-from std_msgs.msg import Float32
-
+from std_msgs.msg import UInt16
 from .robot_controller import RobotController
 from .web_server import WebServer
 
@@ -28,15 +27,15 @@ class WebControlNode(Node):
         # Camera subscriber
         self.camera_sub = self.create_subscription(
             Image,
-            '/camera/image_raw',   # change this if your real topic is different
+            '/image_raw',   # change this if your real topic is different
             self.camera_callback,
             10
         )
 
         # Battery subscriber
         self.battery_sub = self.create_subscription(
-            Float32,
-            '/battery_voltage',    # change this if your real topic is different
+            UInt16,
+            '/ros_robot_controller/battery',    # change this if your real topic is different
             self.battery_callback,
             10
         )
@@ -56,7 +55,7 @@ class WebControlNode(Node):
 
     def battery_callback(self, msg):
         try:
-            self.web.battery_voltage = float(msg.data)
+            self.web.battery_voltage = msg.data/1000.0
         except Exception:
             self.web.battery_voltage = None
 
