@@ -54,6 +54,7 @@ def api_run_node(server):
     data = request.json or {}
     node = data.get("node")
 
+
     if node == "body_control":
         cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/body_control.py"]
 
@@ -64,7 +65,7 @@ def api_run_node(server):
         cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/joystick.py"]
 
     elif node == "avoidance":
-        cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/avoidance_node.py"]
+        cmd = ["python3", "/home/ubuntu/ros2_ws/src/web_control/web_control/avoidance_node.py"]
 
     else:
         return jsonify({"message": "Unknown node"}), 400
@@ -74,6 +75,7 @@ def api_run_node(server):
             server.current_process.kill()
             time.sleep(0.5)
 
+        server.robot.manual_control = False
         server.current_process = subprocess.Popen(cmd)
 
         return jsonify({"message": f"{node} started"})
@@ -87,6 +89,7 @@ def api_stop_node(server):
         if hasattr(server, "current_process") and server.current_process:
             server.current_process.kill()
             server.current_process = None
+            server.robot.manual_control = True
             return jsonify({"message": "Node stopped"})
 
         return jsonify({"message": "No node running"})

@@ -6,6 +6,8 @@ class RobotController:
 
     def __init__(self, node):
         self.node = node
+        
+        self.manual_control = True
 
         self.move_x = 0.0
         self.move_y = 0.0
@@ -33,6 +35,8 @@ class RobotController:
         node.create_timer(0.05, self.camera_loop)
 
     def movement_loop(self):
+        if not self.manual_control:
+            return
         twist = Twist()
 
         twist.linear.x = self.move_y * 0.6
