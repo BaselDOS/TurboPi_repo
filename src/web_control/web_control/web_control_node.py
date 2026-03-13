@@ -41,13 +41,6 @@ class WebControlNode(Node):
             10
         )
 
-        #joystick_pub
-        self.joy_pub = self.create_publisher(
-            Float32MultiArray,
-            '/joystick_cmd',
-            10
-        )
-
         self.get_logger().info("UI server started")
 
     def camera_callback(self, msg):

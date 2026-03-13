@@ -21,13 +21,8 @@ def api_move(robot):
 
     data = request.json or {}
 
-    msg = Float32MultiArray()
-    msg.data = [
-        float(data.get("x", 0)),
-        float(data.get("y", 0))
-    ]
-
-    robot.node.joy_pub.publish(msg)
+    robot.move_x = float(data.get("x", 0))
+    robot.move_y = float(data.get("y", 0))
 
     return jsonify({"status": "ok"})
 
