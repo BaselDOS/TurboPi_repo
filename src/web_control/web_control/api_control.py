@@ -2,7 +2,7 @@ import subprocess
 import time
 
 from flask import jsonify, request
-
+from std_msgs.msg import Float32MultiArray
 
 def register_control_routes(server):
 
@@ -18,10 +18,16 @@ def register_control_routes(server):
 
 
 def api_move(robot):
+
     data = request.json or {}
 
-    robot.move_x = float(data.get("x", 0))
-    robot.move_y = float(data.get("y", 0))
+    msg = Float32MultiArray()
+    msg.data = [
+        float(data.get("x", 0)),
+        float(data.get("y", 0))
+    ]
+
+    robot.node.joy_pub.publish(msg)
 
     return jsonify({"status": "ok"})
 

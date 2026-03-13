@@ -29,7 +29,7 @@ class RobotController:
             10
         )
 
-        node.create_timer(0.05, self.movement_loop)
+        #node.create_timer(0.05, self.movement_loop)
         node.create_timer(0.05, self.camera_loop)
 
     def movement_loop(self):

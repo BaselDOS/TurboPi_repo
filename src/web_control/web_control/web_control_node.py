@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
+from std_msgs.msg import Float32MultiArray
 
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
@@ -37,6 +38,13 @@ class WebControlNode(Node):
             UInt16,
             '/ros_robot_controller/battery',    # change this if your real topic is different
             self.battery_callback,
+            10
+        )
+
+        #joystick_pub
+        self.joy_pub = self.create_publisher(
+            Float32MultiArray,
+            '/joystick_cmd',
             10
         )
 
