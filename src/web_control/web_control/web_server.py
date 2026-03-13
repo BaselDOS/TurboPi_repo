@@ -11,14 +11,15 @@ from .api_stream import register_stream_routes
 class WebServer:
 
     def __init__(self, node, pkg_share):
-
         self.node = node
         self.robot = node.robot
-        
+
         self.battery_voltage = None
         self.camera_ok = False
         self.frame = None
         self.frame_lock = threading.Lock()
+
+        self.current_process = None
 
         self.app = Flask(
             __name__,
@@ -27,12 +28,12 @@ class WebServer:
         )
 
         self.socketio = SocketIO(self.app, cors_allowed_origins="*")
-        
-        #Routs
-        self.app.add_url_rule('/', 'index', lambda: self.index())
-        self.app.add_url_rule('/run', 'run', lambda: self.run_page())
 
-        # Register API modules
+        # Page routes
+        self.app.add_url_rule('/', 'index', self.index)
+        self.app.add_url_rule('/run', 'run', self.run_page)
+
+        # API routes
         register_status_routes(self)
         register_control_routes(self)
         register_stream_routes(self)
@@ -48,7 +49,6 @@ class WebServer:
         return render_template('run.html')
 
     def _run_server(self):
-
         self.socketio.run(
             self.app,
             host='0.0.0.0',

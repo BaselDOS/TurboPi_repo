@@ -13,7 +13,6 @@ from .web_server import WebServer
 class WebControlNode(Node):
 
     def __init__(self):
-
         super().__init__('web_control_node')
 
         pkg_share = get_package_share_directory('web_control')
@@ -24,40 +23,45 @@ class WebControlNode(Node):
         # Web server
         self.web = WebServer(self, pkg_share)
 
-        self.get_logger().info("UI server started")
-        
         self.bridge = CvBridge()
-        
-        #camera_sub
+
+        # Camera subscriber
         self.camera_sub = self.create_subscription(
             Image,
-            '/camera/image_raw',
+            '/camera/image_raw',   # change this if your real topic is different
             self.camera_callback,
             10
         )
 
-        #battery_sub
+        # Battery subscriber
         self.battery_sub = self.create_subscription(
             Float32,
-            '/battery_voltage',
+            '/battery_voltage',    # change this if your real topic is different
             self.battery_callback,
             10
         )
 
+        self.get_logger().info("UI server started")
+
     def camera_callback(self, msg):
+        try:
+            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
 
-        frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            with self.web.frame_lock:
+                self.web.frame = frame
 
-        with self.server.frame_lock:
-            self.server.frame = frame
-
-        self.server.camera_ok = True
+            self.web.camera_ok = True
+        except Exception:
+            self.web.camera_ok = False
 
     def battery_callback(self, msg):
-        self.server.battery_voltage = msg.data
+        try:
+            self.web.battery_voltage = float(msg.data)
+        except Exception:
+            self.web.battery_voltage = None
+
 
 def main(args=None):
-
     rclpy.init(args=args)
 
     node = WebControlNode()
@@ -65,5 +69,4 @@ def main(args=None):
     rclpy.spin(node)
 
     node.destroy_node()
-
     rclpy.shutdown()

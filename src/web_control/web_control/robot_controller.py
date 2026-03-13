@@ -5,16 +5,14 @@ from ros_robot_controller_msgs.msg import SetPWMServoState, PWMServoState
 class RobotController:
 
     def __init__(self, node):
-
         self.node = node
 
         self.move_x = 0.0
         self.move_y = 0.0
-
         self.rotate_dir = 0
 
-        self.cam_pan = 0
-        self.cam_tilt = 0
+        self.cam_pan = 0.0
+        self.cam_tilt = 0.0
 
         self.servo_x = 1500
         self.servo_y = 1500
@@ -35,7 +33,6 @@ class RobotController:
         node.create_timer(0.05, self.camera_loop)
 
     def movement_loop(self):
-
         twist = Twist()
 
         twist.linear.x = self.move_y * 0.6
@@ -43,14 +40,14 @@ class RobotController:
 
         if self.rotate_dir == 1:
             twist.angular.z = -8.0
-
         elif self.rotate_dir == -1:
             twist.angular.z = 8.0
+        else:
+            twist.angular.z = 0.0
 
         self.cmd_vel_pub.publish(twist)
 
     def camera_loop(self):
-
         step = 10
 
         self.servo_x += int(self.cam_pan * step)

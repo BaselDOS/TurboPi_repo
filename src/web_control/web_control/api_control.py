@@ -18,8 +18,7 @@ def register_control_routes(server):
 
 
 def api_move(robot):
-
-    data = request.json
+    data = request.json or {}
 
     robot.move_x = float(data.get("x", 0))
     robot.move_y = float(data.get("y", 0))
@@ -28,8 +27,7 @@ def api_move(robot):
 
 
 def api_rotate(robot):
-
-    data = request.json
+    data = request.json or {}
     direction = data.get("direction")
 
     if direction == "cw":
@@ -43,8 +41,7 @@ def api_rotate(robot):
 
 
 def api_camera(robot):
-
-    data = request.json
+    data = request.json or {}
 
     robot.cam_pan = float(data.get("x", 0))
     robot.cam_tilt = float(data.get("y", 0))
@@ -53,8 +50,7 @@ def api_camera(robot):
 
 
 def api_run_node(server):
-
-    data = request.json
+    data = request.json or {}
     node = data.get("node")
 
     if node == "body_control":
@@ -64,13 +60,12 @@ def api_run_node(server):
         cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/pose.py"]
 
     elif node == "joystick":
-        cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/pos.py"]
+        cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/joystick.py"]
 
     else:
         return jsonify({"message": "Unknown node"}), 400
 
     try:
-
         if hasattr(server, "current_process") and server.current_process:
             server.current_process.kill()
             time.sleep(0.5)
@@ -80,23 +75,17 @@ def api_run_node(server):
         return jsonify({"message": f"{node} started"})
 
     except Exception as e:
-
         return jsonify({"message": str(e)}), 500
 
 
 def api_stop_node(server):
-
     try:
-
         if hasattr(server, "current_process") and server.current_process:
-
             server.current_process.kill()
             server.current_process = None
-
             return jsonify({"message": "Node stopped"})
 
         return jsonify({"message": "No node running"})
 
     except Exception as e:
-
         return jsonify({"message": str(e)}), 500
