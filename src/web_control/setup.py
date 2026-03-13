@@ -9,8 +9,21 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/templates', ['templates/index.html', 'templates/run.html']),
-        ('share/' + package_name + '/static', ['static/style.css', 'static/app.js']),
+
+        ('share/' + package_name + '/templates', [
+            'templates/index.html',
+            'templates/run.html'
+        ]),
+
+        ('share/' + package_name + '/static', [
+            'static/style.css'
+        ]),
+
+        ('share/' + package_name + '/static/js', [
+            'static/js/status.js',
+            'static/js/joystick.js',
+            'static/js/app.js'
+        ]),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
