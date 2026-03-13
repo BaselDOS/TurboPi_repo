@@ -86,7 +86,6 @@ class WebControlNode(Node):
         )
 
         self.create_timer(0.05, self.camera_loop)
-        self.create_timer(0.05, self.twist_loop)
         self.create_timer(0.05, self.movement_loop)
 
         # Routes
@@ -118,6 +117,12 @@ class WebControlNode(Node):
         twist.linear.x = self.move_y * 0.6
         twist.linear.y = -self.move_x * 0.6
 
+        if self.rotate_dir == 1:
+            twist.angular.z = -8.0
+
+        elif self.rotate_dir == -1:
+            twist.angular.z = 8.0
+
         self.cmd_vel_pub.publish(twist)
 
     def api_move(self):
@@ -128,22 +133,6 @@ class WebControlNode(Node):
         self.move_y = float(data.get("y", 0))
 
         return jsonify({"status": "ok"})
-
-    def twist_loop(self):
-
-        twist = Twist()
-
-        if self.rotate_dir == 1:
-            twist.angular.z = -8.0
-            twist.linear.x = 0.0
-            twist.linear.y = 0.0
-
-        elif self.rotate_dir == -1:
-            twist.angular.z = 8.0
-            twist.linear.x = 0.0
-            twist.linear.y = 0.0
-
-        self.cmd_vel_pub.publish(twist)
 
     def api_status(self):
 
@@ -253,8 +242,7 @@ class WebControlNode(Node):
 
     def camera_loop(self):
 
-        step = 10
-        print("camera loop:", self.cam_pan, self.cam_tilt)
+        step = 10 
         self.servo_x += int(self.cam_pan * step)
         self.servo_y += int(self.cam_tilt * step)
 

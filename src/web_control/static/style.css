@@ -352,6 +352,35 @@ body{
     align-items:center;
     gap:10px;
 }
+/* MOBILE CONTROL LAYOUT */
+@media (max-width: 768px){
+
+.control-grid{
+    grid-template-columns:1fr;
+    gap:30px;
+}
+
+.joystick-area{
+    width:180px;
+    height:180px;
+}
+
+.rotate-controls{
+    gap:20px;
+}
+
+.rotate-btn{
+    width:80px;
+    height:80px;
+    font-size:30px;
+}
+
+.video-block img{
+    width:100%;
+    max-width:100%;
+}
+
+}
 
 .mode-title{font-weight:900;}
 .mode-sub{color:var(--muted); font-size:12.5px; margin-top:2px;}
