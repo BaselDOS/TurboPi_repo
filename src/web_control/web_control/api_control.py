@@ -63,6 +63,9 @@ def api_run_node(server):
     elif node == "joystick":
         cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/joystick.py"]
 
+    elif node == "avoidance":
+        cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/avoidance_node.py"]
+
     else:
         return jsonify({"message": "Unknown node"}), 400
 
