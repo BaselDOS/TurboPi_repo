@@ -123,6 +123,20 @@ function initCameraJoystick() {
 
   });
 
+  // FIX: stop camera when joystick released
+  camManager.on('end', function() {
+
+    if (camX) camX.textContent = "0.00";
+    if (camY) camY.textContent = "0.00";
+
+    fetch('/api/camera',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({x:0,y:0})
+    });
+
+  });
+
 }
 
 function initRotationButtons() {
