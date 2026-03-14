@@ -51,48 +51,116 @@ def api_camera(robot):
 
 
 def api_run_node(server):
+
     data = request.json or {}
     node = data.get("node")
 
-
-    if node == "body_control":
-        cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/body_control.py"]
-
-    elif node == "pose":
-        cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/pose.py"]
-
-    elif node == "joystick":
-        cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/joystick.py"]
-
-    elif node == "avoidance":
-        cmd = ["python3", "/home/ubuntu/ros2_ws/src/web_control/web_control/avoidance_node.py"]
-
-    else:
-        return jsonify({"message": "Unknown node"}), 400
-
     try:
-        if hasattr(server, "current_process") and server.current_process:
-            server.current_process.kill()
-            time.sleep(0.5)
 
-        server.robot.manual_control = False
-        server.current_process = subprocess.Popen(cmd)
-
-        return jsonify({"message": f"{node} started"})
-
-    except Exception as e:
-        return jsonify({"message": str(e)}), 500
-
-
-def api_stop_node(server):
-    try:
+        # stop previous process
         if hasattr(server, "current_process") and server.current_process:
             server.current_process.kill()
             server.current_process = None
-            server.robot.manual_control = True
-            return jsonify({"message": "Node stopped"})
+            time.sleep(0.5)
 
-        return jsonify({"message": "No node running"})
+        # reset robot movement
+        server.robot.move_x = 0.0
+        server.robot.move_y = 0.0
+        server.robot.rotate_dir = 0
+
+        # JOYSTICK MODE
+        if node == "joystick":
+
+            server.robot.manual_control = True
+
+            return jsonify({"message": "Joystick mode enabled"})
+
+
+        # ALL OTHER MODES
+        server.robot.manual_control = False
+
+
+        if node == "body_control":
+            cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/body_control.py"]
+
+        elif node == "pose":
+            cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/pose.py"]
+
+        elif node == "avoidance":
+            cmd = ["python3", "/home/ubuntu/ros2_ws/src/web_control/web_control/avoidance_node.py"]
+
+        else:
+            server.robot.manual_control = True
+            return jsonify({"message": "Unknown node"}), 400
+
+
+        # launch node
+        server.current_process = subprocess.Popen(cmd)
+
+        # wait for node to start
+        time.sleep(2)
+
+        # activate avoidance node services
+        if node == "avoidance":
+
+            subprocess.Popen([
+                "ros2", "service", "call",
+                "/avoidance/enter",
+                "std_srvs/srv/Trigger"
+            ])
+
+            time.sleep(0.5)
+
+            subprocess.Popen([
+                "ros2", "service", "call",
+                "/avoidance/set_running",
+                "std_srvs/srv/SetBool",
+                "{data: true}"
+            ])
+
+
+        return jsonify({"message": f"{node} started"})
+
 
     except Exception as e:
+
+        server.robot.manual_control = True
+        return jsonify({"message": str(e)}), 500
+
+def api_stop_node(server):
+
+    try:
+
+        # stop running process
+        if hasattr(server, "current_process") and server.current_process:
+            server.current_process.kill()
+            server.current_process = None
+
+        # stop avoidance node if it was running
+        try:
+            subprocess.run([
+                "ros2", "service", "call",
+                "/avoidance/set_running",
+                "std_srvs/srv/SetBool",
+                "{data: false}"
+            ])
+        except:
+            pass
+
+        # return control to joystick/manual mode
+        server.robot.manual_control = True
+
+        # reset movement
+        server.robot.move_x = 0.0
+        server.robot.move_y = 0.0
+        server.robot.rotate_dir = 0
+
+        # reset camera
+        server.robot.cam_pan = 0.0
+        server.robot.cam_tilt = 0.0
+
+        return jsonify({"message": "Node stopped"})
+
+    except Exception as e:
+
         return jsonify({"message": str(e)}), 500
