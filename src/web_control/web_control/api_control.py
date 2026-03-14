@@ -201,6 +201,7 @@ def api_move(server):
     return jsonify({"status": "ok"})
 
 
+
 # -------------------------------------------------
 # Rotate buttons
 # -------------------------------------------------
@@ -208,13 +209,21 @@ def api_rotate(server):
 
     data = request.json or {}
 
-    direction = int(data.get("direction", 0))
+    direction = data.get("direction", "stop")
+
+    if direction == "cw":
+        rot = -1
+
+    elif direction == "ccw":
+        rot = 1
+
+    else:
+        rot = 0
 
     if server.robot.manual_control:
-        server.robot.rotate_dir = direction
+        server.robot.rotate_dir = rot
 
     return jsonify({"status": "ok"})
-
 
 # -------------------------------------------------
 # Camera joystick
