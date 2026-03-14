@@ -1,55 +1,75 @@
 import subprocess
 import time
+from flask import request, jsonify
 
-from flask import jsonify, request
-from std_msgs.msg import Float32MultiArray
 
+# -------------------------------------------------
+# Register API routes
+# -------------------------------------------------
 def register_control_routes(server):
 
-    app = server.app
-    robot = server.robot
+    server.app.add_url_rule(
+        '/api/run_node',
+        'api_run_node',
+        lambda: api_run_node(server),
+        methods=['POST']
+    )
 
-    app.add_url_rule('/api/move', 'move', lambda: api_move(robot), methods=['POST'])
-    app.add_url_rule('/api/rotate', 'rotate', lambda: api_rotate(robot), methods=['POST'])
-    app.add_url_rule('/api/camera', 'camera', lambda: api_camera(robot), methods=['POST'])
+    server.app.add_url_rule(
+        '/api/stop_node',
+        'api_stop_node',
+        lambda: api_stop_node(server),
+        methods=['POST']
+    )
 
-    app.add_url_rule('/api/run_node', 'run_node', lambda: api_run_node(server), methods=['POST'])
-    app.add_url_rule('/api/stop_node', 'stop_node', lambda: api_stop_node(server), methods=['POST'])
+    server.app.add_url_rule(
+        '/api/move',
+        'api_move',
+        lambda: api_move(server),
+        methods=['POST']
+    )
 
+    server.app.add_url_rule(
+        '/api/rotate',
+        'api_rotate',
+        lambda: api_rotate(server),
+        methods=['POST']
+    )
 
-def api_move(robot):
-
-    data = request.json or {}
-
-    robot.move_x = float(data.get("x", 0))
-    robot.move_y = float(data.get("y", 0))
-
-    return jsonify({"status": "ok"})
-
-
-def api_rotate(robot):
-    data = request.json or {}
-    direction = data.get("direction")
-
-    if direction == "cw":
-        robot.rotate_dir = 1
-    elif direction == "ccw":
-        robot.rotate_dir = -1
-    else:
-        robot.rotate_dir = 0
-
-    return jsonify({"status": "ok"})
-
-
-def api_camera(robot):
-    data = request.json or {}
-
-    robot.cam_pan = float(data.get("x", 0))
-    robot.cam_tilt = float(data.get("y", 0))
-
-    return jsonify({"status": "ok"})
+    server.app.add_url_rule(
+        '/api/camera',
+        'api_camera',
+        lambda: api_camera(server),
+        methods=['POST']
+    )
 
 
+# -------------------------------------------------
+# Wait for ROS service
+# -------------------------------------------------
+def wait_for_service(service_name, timeout=10):
+
+    start = time.time()
+
+    while time.time() - start < timeout:
+
+        result = subprocess.run(
+            ["ros2", "service", "list"],
+            capture_output=True,
+            text=True
+        )
+
+        if service_name in result.stdout:
+            return True
+
+        time.sleep(0.5)
+
+    return False
+
+
+# -------------------------------------------------
+# Run node
+# -------------------------------------------------
 def api_run_node(server):
 
     data = request.json or {}
@@ -57,7 +77,7 @@ def api_run_node(server):
 
     try:
 
-        # stop previous process
+        # stop previous node
         if hasattr(server, "current_process") and server.current_process:
             server.current_process.kill()
             server.current_process = None
@@ -68,18 +88,15 @@ def api_run_node(server):
         server.robot.move_y = 0.0
         server.robot.rotate_dir = 0
 
-        # JOYSTICK MODE
+        # joystick mode
         if node == "joystick":
 
             server.robot.manual_control = True
-
             return jsonify({"message": "Joystick mode enabled"})
 
-
-        # ALL OTHER MODES
         server.robot.manual_control = False
 
-
+        # select node
         if node == "body_control":
             cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/body_control.py"]
 
@@ -87,7 +104,7 @@ def api_run_node(server):
             cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/pose.py"]
 
         elif node == "avoidance":
-            cmd = ["python3", "/home/ubuntu/ros2_ws/src/web_control/web_control/avoidance_node.py"]
+            cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/avoidance_node.py"]
 
         else:
             server.robot.manual_control = True
@@ -97,27 +114,25 @@ def api_run_node(server):
         # launch node
         server.current_process = subprocess.Popen(cmd)
 
-        # wait for node to start
-        time.sleep(2)
-
-        # activate avoidance node services
+        # activate avoidance
         if node == "avoidance":
 
-            subprocess.Popen([
-                "ros2", "service", "call",
-                "/avoidance/enter",
-                "std_srvs/srv/Trigger"
-            ])
+            if wait_for_service("/avoidance_node/enter"):
 
-            time.sleep(0.5)
+                subprocess.Popen([
+                    "ros2", "service", "call",
+                    "/avoidance_node/enter",
+                    "std_srvs/srv/Trigger"
+                ])
 
-            subprocess.Popen([
-                "ros2", "service", "call",
-                "/avoidance/set_running",
-                "std_srvs/srv/SetBool",
-                "{data: true}"
-            ])
+                time.sleep(0.5)
 
+                subprocess.Popen([
+                    "ros2", "service", "call",
+                    "/avoidance_node/set_running",
+                    "std_srvs/srv/SetBool",
+                    "{data: true}"
+                ])
 
         return jsonify({"message": f"{node} started"})
 
@@ -127,30 +142,33 @@ def api_run_node(server):
         server.robot.manual_control = True
         return jsonify({"message": str(e)}), 500
 
+
+# -------------------------------------------------
+# Stop node
+# -------------------------------------------------
 def api_stop_node(server):
 
     try:
 
-        # stop running process
-        if hasattr(server, "current_process") and server.current_process:
-            server.current_process.kill()
-            server.current_process = None
-
-        # stop avoidance node if it was running
+        # stop avoidance
         try:
-            subprocess.run([
+            subprocess.Popen([
                 "ros2", "service", "call",
-                "/avoidance/set_running",
+                "/avoidance_node/set_running",
                 "std_srvs/srv/SetBool",
                 "{data: false}"
             ])
         except:
             pass
 
-        # return control to joystick/manual mode
+        # kill running process
+        if hasattr(server, "current_process") and server.current_process:
+            server.current_process.kill()
+            server.current_process = None
+
         server.robot.manual_control = True
 
-        # reset movement
+        # reset robot movement
         server.robot.move_x = 0.0
         server.robot.move_y = 0.0
         server.robot.rotate_dir = 0
@@ -164,3 +182,51 @@ def api_stop_node(server):
     except Exception as e:
 
         return jsonify({"message": str(e)}), 500
+
+
+# -------------------------------------------------
+# Move joystick
+# -------------------------------------------------
+def api_move(server):
+
+    data = request.json or {}
+
+    x = float(data.get("x", 0.0))
+    y = float(data.get("y", 0.0))
+
+    if server.robot.manual_control:
+        server.robot.move_x = x
+        server.robot.move_y = y
+
+    return jsonify({"status": "ok"})
+
+
+# -------------------------------------------------
+# Rotate buttons
+# -------------------------------------------------
+def api_rotate(server):
+
+    data = request.json or {}
+
+    direction = int(data.get("direction", 0))
+
+    if server.robot.manual_control:
+        server.robot.rotate_dir = direction
+
+    return jsonify({"status": "ok"})
+
+
+# -------------------------------------------------
+# Camera joystick
+# -------------------------------------------------
+def api_camera(server):
+
+    data = request.json or {}
+
+    pan = float(data.get("pan", data.get("x", 0.0)))
+    tilt = float(data.get("tilt", data.get("y", 0.0)))
+
+    server.robot.cam_pan = pan
+    server.robot.cam_tilt = tilt
+
+    return jsonify({"status": "ok"})
