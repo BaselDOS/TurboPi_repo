@@ -26,6 +26,7 @@ function initRun() {
 
   const modelLabel = document.getElementById('selectedMode');
   const joystickPanel = document.getElementById('joystickPanel');
+  const cameraPanel = document.getElementById('cameraPanel');
 
   document.querySelectorAll('.mode-card').forEach(btn => {
 
@@ -66,7 +67,8 @@ function initRun() {
 
     if (selected === "joystick") {
 
-        joystickPanel.classList.remove("hidden");
+    joystickPanel.classList.remove("hidden");
+    cameraPanel.classList.remove("hidden");
 
     const img = document.getElementById("cameraFeed");
     if (img) {
@@ -75,8 +77,18 @@ function initRun() {
 
     Joystick.init();
 
+}
+else if (selected === "avoidance") {
+
+    joystickPanel.classList.add("hidden");
+    cameraPanel.classList.remove("hidden");
+
+    const img = document.getElementById("cameraFeed");
+    if (img) {
+        img.src = "/stream?" + new Date().getTime();
     }
 
+}
   });
 
   const stopBtn = document.getElementById('stopBtn');
@@ -90,7 +102,12 @@ function initRun() {
     alert(data.message || "Node stopped");
 
     joystickPanel.classList.add("hidden");
+    cameraPanel.classList.add("hidden");
 
+    const img = document.getElementById("cameraFeed");
+    if (img) {
+        img.src = "";
+    }
   });
 
 }

@@ -41,6 +41,14 @@ class WebControlNode(Node):
             10
         )
 
+        #avoidance subscriber
+        self.avoidance_sub = self.create_subscription(
+            Image,
+            '/avoidance/debug_image',
+            self.avoidance_callback,
+            10
+        )
+
         self.get_logger().info("UI server started")
 
     def camera_callback(self, msg):
@@ -60,6 +68,18 @@ class WebControlNode(Node):
         except Exception:
             self.web.battery_voltage = None
 
+    def avoidance_callback(self, msg):
+
+        try:
+            frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+
+            with self.web.frame_lock:
+                self.web.frame = frame
+
+            self.web.camera_ok = True
+
+        except Exception:
+            pass
 
 def main(args=None):
     rclpy.init(args=args)

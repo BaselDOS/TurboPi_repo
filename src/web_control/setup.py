@@ -41,6 +41,7 @@ setup(
         'console_scripts': [
             'web_control_node = web_control.web_control_node:main',
             'avoidance_node = web_control.avoidance.avoidance_node:main',
+            'joystick_node = web_control.joystick.joystick_node:main',
         ],
     },
 )

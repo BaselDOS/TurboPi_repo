@@ -31,6 +31,11 @@ class AvoidanceNode(Node):
         self.motion = MotionController()
 
         self.cmd_pub = self.create_publisher(Twist,'/cmd_vel',10)
+        self.debug_pub = self.create_publisher(
+            Image,
+            '/avoidance/debug_image',
+            10
+        )       
 
         self.create_subscription(
             Image,
@@ -80,12 +85,9 @@ class AvoidanceNode(Node):
             flow_val,
             self.distance
         )
-
         self.publish_cmd(x,y,z)
-
-        cv2.imshow("TurboPi Avoidance",frame)
-        cv2.waitKey(1)
-
+        debug_msg = self.bridge.cv2_to_imgmsg(frame, "bgr8")
+        self.debug_pub.publish(debug_msg)
 
 def main():
 
