@@ -66,9 +66,14 @@ function initRun() {
 
     if (selected === "joystick") {
 
-      joystickPanel.classList.remove("hidden");
+        joystickPanel.classList.remove("hidden");
 
-      Joystick.init();
+    const img = document.getElementById("cameraFeed");
+    if (img) {
+        img.src = "/stream?" + new Date().getTime();
+    }
+
+    Joystick.init();
 
     }
 

@@ -43,9 +43,9 @@ class RobotController:
         twist.linear.y = -self.move_x * 0.6
 
         if self.rotate_dir == 1:
-            twist.angular.z = -8.0
-        elif self.rotate_dir == -1:
             twist.angular.z = 8.0
+        elif self.rotate_dir == -1:
+            twist.angular.z = -8.0
         else:
             twist.angular.z = 0.0
 
