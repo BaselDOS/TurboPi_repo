@@ -20,7 +20,13 @@ def ask_ai(text):
         "Content-Type":"application/json"
     }
 
-    r = requests.post(API_URL, headers=headers, json=payload)
+    r = requests.post(
+        API_URL,
+        headers=headers,
+        json=payload,
+        timeout=5
+    ) 
+    print("AI RESPONSE:", r.text)
 
     content = r.json()["choices"][0]["message"]["content"]
 

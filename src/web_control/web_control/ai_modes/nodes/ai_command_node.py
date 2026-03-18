@@ -29,7 +29,12 @@ class AICommandNode(Node):
 
         self.get_logger().info(f"User command: {text}")
 
-        result = ask_ai(text)
+        #result = ask_ai(text)
+        result = {
+            "commands":[
+            {"type":"move","value":"forward"}
+            ]
+        }
 
         commands = result.get("commands",[])
 
