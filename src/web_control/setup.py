@@ -42,6 +42,7 @@ setup(
             'web_control_node = web_control.web_control_node:main',
             'avoidance_node = web_control.avoidance.avoidance_node:main',
             'joystick_node = web_control.joystick.joystick_node:main',
+            'ai_command_node = web_control.ai_modes.nodes.ai_command_node:main',
         ],
     },
 )
