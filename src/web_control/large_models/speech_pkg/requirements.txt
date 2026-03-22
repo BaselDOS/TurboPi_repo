@@ -1,0 +1,7 @@
+pyserial
+webrtcvad
+numpy
+sounddevice
+openai
+librosa
+dashscope
