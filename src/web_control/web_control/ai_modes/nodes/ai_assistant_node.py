@@ -4,7 +4,9 @@ import time
 
 from speech import speech
 from speech import awake
+
 from ai_modes.executors.voice_executor import VoiceExecutor
+from ai_modes.executors.vision_executor import VisionExecutor
 
 
 class AIAssistantNode:
@@ -13,26 +15,36 @@ class AIAssistantNode:
 
         rclpy.init()
 
-        self.executor = VoiceExecutor()
+        self.voice_executor = VoiceExecutor()
+        self.vision_executor = VisionExecutor()
 
-        # Run vision node in background
         threading.Thread(
             target=rclpy.spin,
-            args=(self.executor.vision,),
+            args=(self.vision_executor,),
             daemon=True
         ).start()
 
-        # Wake word
         port = "/dev/ttyUSB0"
         self.kws = awake.WonderEchoPro(port)
         self.kws.start()
 
-        # ASR (OpenAI)
         self.asr = speech.RealTimeOpenAIASR()
         self.asr.update_session(model="whisper-1")
 
-        # TTS (OpenAI)
         self.tts = speech.RealTimeOpenAITTS()
+
+    def is_vision_request(self, text: str) -> bool:
+        t = (text or "").lower()
+        vision_triggers = [
+            "what do you see",
+            "what can you see",
+            "describe the image",
+            "describe what you see",
+            "look at this",
+            "what is in front of you",
+            "can you see",
+        ]
+        return any(trigger in t for trigger in vision_triggers)
 
     def run(self):
         print("Waiting for wake word...")
@@ -50,14 +62,18 @@ class AIAssistantNode:
 
                     print("User:", text)
 
-                    response = self.executor.process(text)
+                    if self.is_vision_request(text):
+                        print("Vision mode activated")
+                        result = self.vision_executor.describe()
+                    else:
+                        print("Voice/chat/command mode activated")
+                        result = self.voice_executor.process(text)
 
-                    if not response:
-                        response = "Sorry, I could not process that."
+                    if not result:
+                        result = "Sorry, I could not process that."
 
-                    print("AI:", response)
-
-                    self.tts.tts(response, model="tts-1")
+                    print("AI:", result)
+                    self.tts.tts(result, model="tts-1")
 
                 time.sleep(0.02)
 
@@ -65,7 +81,7 @@ class AIAssistantNode:
                 print("Shutting down...")
                 try:
                     self.kws.exit()
-                except:
+                except Exception:
                     pass
                 break
 
