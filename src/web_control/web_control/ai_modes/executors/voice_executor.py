@@ -1,36 +1,48 @@
+#!/usr/bin/env python3
+# encoding: utf-8
+
 import json
 from datetime import datetime
-
 from openai import OpenAI
 
-from ai_modes.core.config import llm_api_key
+from ai_modes.core.config import llm_api_key, llm_base_url
 from ai_modes.core.color_map import COLOR_MAP, ALLOWED_LED_COLORS
 from ai_modes.core.prompts import VOICE_ASSISTANT_PROMPT
 
-
-def extract_json(text: str):
-    try:
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        if start == -1 or end <= 0:
-            return None
-        return json.loads(text[start:end])
-    except Exception:
-        return None
+from ros_robot_controller_msgs.msg import RGBStates, RGBState
 
 
 class VoiceExecutor:
-    def __init__(self):
-        self.client = OpenAI(api_key=llm_api_key)
+
+    def __init__(self, rgb_pub=None, sonar_pub=None, logger=None):
+        # =========================
+        # LLM INIT
+        # =========================
+        self.client = OpenAI(
+            api_key=llm_api_key,
+            base_url=llm_base_url if llm_base_url else None
+        )
         self.model = "gpt-4o-mini"
 
+        # =========================
+        # ROS PUBLISHERS
+        # =========================
+        self.rgb_pub = rgb_pub
+        self.sonar_pub = sonar_pub
+        self.logger = logger
+
+
+    # =========================
+    # MAIN PROCESS
+    # =========================
     def process(self, text: str) -> str:
+
         text = (text or "").strip()
         if not text:
             return "I did not hear anything."
 
-        print("\n=== USER TEXT ===")
-        print(text)
+        self._log("\n=== USER TEXT ===")
+        self._log(text)
 
         today_str = datetime.now().strftime("%Y-%m-%d")
 
@@ -40,10 +52,7 @@ class VoiceExecutor:
                 messages=[
                     {
                         "role": "system",
-                        "content": (
-                            VOICE_ASSISTANT_PROMPT
-                            + f"\n\nCurrent local date: {today_str}\n"
-                        ),
+                        "content": VOICE_ASSISTANT_PROMPT + f"\n\nDate: {today_str}"
                     },
                     {"role": "user", "content": text},
                 ],
@@ -52,44 +61,54 @@ class VoiceExecutor:
 
             raw = response.choices[0].message.content or ""
 
-            print("\n=== LLM RAW ===")
-            print(raw)
+            self._log("\n=== LLM RAW ===")
+            self._log(raw)
 
-            data = extract_json(raw)
+            data = self._extract_json(raw)
+
             if not data:
-                print("❌ Failed to parse JSON")
                 return "I could not understand that."
 
             mode = data.get("mode", "chat")
             reply = data.get("reply", "Okay.")
             commands = data.get("commands", [])
 
-            if not isinstance(commands, list):
-                print("❌ commands is not a list")
-                return "Invalid command format."
-
             if mode == "command":
                 for cmd in commands:
                     if not isinstance(cmd, dict):
                         continue
 
-                    cmd_type = cmd.get("type")
-                    value = cmd.get("value")
-
-                    if cmd_type == "led":
-                        self.handle_led(value)
+                    if cmd.get("type") == "led":
+                        self._handle_led(cmd.get("value"))
 
             return reply
 
         except Exception as e:
-            print("❌ LLM ERROR:", e)
-            return "I had a problem processing that."
+            self._log("❌ LLM ERROR:", e)
+            return "Something went wrong."
 
-    def handle_led(self, color: str):
-        print(f"[LED] Requested: {color}")
+
+    # =========================
+    # JSON PARSER
+    # =========================
+    def _extract_json(self, text):
+        try:
+            start = text.find("{")
+            end = text.rfind("}") + 1
+            return json.loads(text[start:end])
+        except:
+            return None
+
+
+    # =========================
+    # LED CONTROL (BOTH SYSTEMS)
+    # =========================
+    def _handle_led(self, color: str):
+
+        self._log(f"[LED] Requested: {color}")
 
         if color not in ALLOWED_LED_COLORS:
-            print(f"❌ Invalid LED color from AI: {color}")
+            self._log(f"❌ Invalid color: {color}")
             return
 
         if color == "off":
@@ -97,16 +116,45 @@ class VoiceExecutor:
         else:
             r, g, b = COLOR_MAP[color]
 
-        try:
-            from hiwonder import Board
+        # ---------- BOARD LED ----------
+        if self.rgb_pub:
+            try:
+                msg = RGBStates()
+                msg.states = [
+                    RGBState(index=1, red=r, green=g, blue=b),
+                    RGBState(index=2, red=r, green=g, blue=b),
+                ]
+                self.rgb_pub.publish(msg)
+                self._log(f"[BOARD LED] → {r},{g},{b}")
+            except Exception as e:
+                self._log("⚠️ Board LED failed:", e)
 
-            # Change both pixels if your board uses 2 onboard RGB LEDs
-            Board.RGB.setPixelColor(0, Board.PixelColor(r, g, b))
-            Board.RGB.setPixelColor(1, Board.PixelColor(r, g, b))
-            Board.RGB.show()
+        # ---------- SONAR LED ----------
+        if self.sonar_pub:
+            try:
+                msg = RGBStates()
+                msg.states = [
+                    RGBState(index=0, red=r, green=g, blue=b),
+                    RGBState(index=1, red=r, green=g, blue=b),
+                ]
+                self.sonar_pub.publish(msg)
+                self._log(f"[SONAR LED] → {r},{g},{b}")
+            except Exception as e:
+                self._log("⚠️ Sonar LED failed:", e)
 
-            print(f"[LED] Applied RGB: {r}, {g}, {b}")
+        # fallback
+        if not self.rgb_pub and not self.sonar_pub:
+            self._log(f"[TEST MODE] RGB: {r},{g},{b}")
 
-        except Exception as e:
-            print("⚠️ LED hardware call failed:", e)
-            print(f"[LED] TEST MODE RGB: {r}, {g}, {b}")
+
+    # =========================
+    # LOGGER
+    # =========================
+    def _log(self, *args):
+        print(*args)
+
+        if self.logger:
+            try:
+                self.logger.info(" ".join(str(a) for a in args))
+            except:
+                pass
