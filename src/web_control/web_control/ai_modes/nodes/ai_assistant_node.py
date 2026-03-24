@@ -75,9 +75,9 @@ class AIAssistantNode(Node):
         # =========================
         base_path = os.path.dirname(os.path.abspath(__file__))
 
-        self.wakeup_audio = os.path.join(base_path, "../../resources/audio/wakeup.wav")
-        self.start_audio = os.path.join(base_path, "../../resources/audio/start_audio.wav")
-        self.no_voice_audio = os.path.join(base_path, "../../resources/audio/no_voice.wav")
+        self.wakeup_audio = os.path.join(base_path, "../resources/audio/wakeup.wav")
+        self.start_audio = os.path.join(base_path, "../resources/audio/start_audio.wav")
+        self.no_voice_audio = os.path.join(base_path, "../resources/audio/no_voice.wav")
 
         # =========================
         # SYSTEM INIT
