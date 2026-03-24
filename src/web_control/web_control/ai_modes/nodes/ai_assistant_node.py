@@ -8,10 +8,14 @@ import threading
 import rclpy
 from rclpy.node import Node
 
-from ros_robot_controller_msgs.msg import RGBStates
+from geometry_msgs.msg import Twist
+from ros_robot_controller_msgs.msg import (
+    RGBStates,
+    SetPWMServoState,
+    BuzzerState
+)
 
-from speech import speech
-from speech import awake
+from speech import speech, awake
 
 from ai_modes.executors.voice_executor import VoiceExecutor
 from ai_modes.executors.vision_executor import VisionExecutor
@@ -25,7 +29,7 @@ class AIAssistantNode(Node):
         print("Initializing AI Assistant Node...")
 
         # =========================
-        # 🔌 PUBLISHERS
+        # PUBLISHERS
         # =========================
         self.rgb_pub = self.create_publisher(
             RGBStates,
@@ -39,8 +43,26 @@ class AIAssistantNode(Node):
             10
         )
 
+        self.cmd_pub = self.create_publisher(
+            Twist,
+            "/cmd_vel",
+            10
+        )
+
+        self.servo_pub = self.create_publisher(
+            SetPWMServoState,
+            "/ros_robot_controller/pwm_servo/set_state",
+            10
+        )
+
+        self.buzzer_pub = self.create_publisher(
+            BuzzerState,
+            "/ros_robot_controller/set_buzzer",
+            10
+        )
+
         # =========================
-        # 👁️ VISION NODE
+        # VISION
         # =========================
         self.vision_executor = VisionExecutor()
 
@@ -51,16 +73,19 @@ class AIAssistantNode(Node):
         ).start()
 
         # =========================
-        # 🧠 EXECUTOR
+        # VOICE
         # =========================
         self.voice_executor = VoiceExecutor(
             rgb_pub=self.rgb_pub,
             sonar_pub=self.sonar_pub,
-            logger=self.get_logger()
+            logger=self.get_logger(),
+            cmd_pub=self.cmd_pub,
+            servo_pub=self.servo_pub,
+            buzzer_pub=self.buzzer_pub
         )
 
         # =========================
-        # 🎤 WAKE WORD + AUDIO
+        # AUDIO
         # =========================
         port = "/dev/ttyUSB0"
         self.kws = awake.WonderEchoPro(port)
@@ -70,49 +95,30 @@ class AIAssistantNode(Node):
 
         self.tts = speech.RealTimeOpenAITTS()
 
-        # =========================
-        # 🔊 AUDIO PATH FIX (IMPORTANT)
-        # =========================
-        base_path = os.path.dirname(os.path.abspath(__file__))
+        base = os.path.dirname(os.path.abspath(__file__))
 
-        self.wakeup_audio = os.path.join(base_path, "../resources/audio/wakeup.wav")
-        self.start_audio = os.path.join(base_path, "../resources/audio/start_audio.wav")
-        self.no_voice_audio = os.path.join(base_path, "../resources/audio/no_voice.wav")
-
-        # =========================
-        # SYSTEM INIT
-        # =========================
-        try:
-            os.system("pinctrl FAN_PWM op dh")
-        except:
-            pass
+        self.wakeup_audio = os.path.join(base, "../resources/audio/wakeup.wav")
+        self.start_audio = os.path.join(base, "../resources/audio/start_audio.wav")
+        self.no_voice_audio = os.path.join(base, "../resources/audio/no_voice.wav")
 
         speech.set_volume(80)
         speech.play_audio(self.start_audio)
 
-        print("✅ AI Assistant Node Ready")
+        print("✅ AI Assistant Ready")
 
-
-    # =========================
-    # MODE DETECTION
     # =========================
     def is_vision_request(self, text):
-
         t = (text or "").lower()
 
         triggers = [
             "what do you see",
-            "describe",
-            "look",
-            "what is in front",
+            "describe what you see",
+            "what is in front of you",
             "can you see"
         ]
 
         return any(k in t for k in triggers)
 
-
-    # =========================
-    # MAIN LOOP
     # =========================
     def run(self):
 
@@ -123,26 +129,19 @@ class AIAssistantNode(Node):
             try:
                 if self.kws.wakeup():
 
-                    print("🔥 WAKE DETECTED")
                     speech.play_audio(self.wakeup_audio)
 
                     text = self.asr.asr()
 
                     if not text:
-                        print("No speech detected")
                         speech.play_audio(self.no_voice_audio)
                         continue
 
                     print("User:", text)
 
-                    # =========================
-                    # MODE SWITCH
-                    # =========================
                     if self.is_vision_request(text):
-                        print("VISION MODE")
                         result = self.vision_executor.describe()
                     else:
-                        print("VOICE MODE")
                         result = self.voice_executor.process(text)
 
                     if not result:
@@ -150,13 +149,9 @@ class AIAssistantNode(Node):
 
                     print("AI:", result)
 
-                    self.tts.tts(result, model="tts-1")
+                    self.tts.tts(result)
 
                 time.sleep(0.02)
-
-            except KeyboardInterrupt:
-                print("Shutting down...")
-                break
 
             except Exception as e:
                 print("ERROR:", e)
