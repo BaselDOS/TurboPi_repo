@@ -3,6 +3,7 @@
 
 import json
 import time
+import threading
 from datetime import datetime
 from openai import OpenAI
 
@@ -16,6 +17,8 @@ from ros_robot_controller_msgs.msg import (
     SetPWMServoState, PWMServoState,
     BuzzerState
 )
+
+from ai_modes.actions.dance_controller import DanceController
 
 
 class VoiceExecutor:
@@ -40,6 +43,14 @@ class VoiceExecutor:
         self.servo_pub = servo_pub
         self.buzzer_pub = buzzer_pub
         self.logger = logger
+
+        # 🔥 Dance controller
+        self.dance = DanceController(
+            cmd_pub=self.cmd_pub,
+            rgb_pub=self.rgb_pub,
+            servo_pub=self.servo_pub,
+            buzzer_pub=self.buzzer_pub
+        )
 
     # =========================
     def process(self, text: str) -> str:
@@ -69,25 +80,33 @@ class VoiceExecutor:
         reply = data.get("reply", "Okay.")
         commands = data.get("commands", [])
 
+        # 🔥 execute commands sequentially but NON-BLOCKING globally
         for cmd in commands:
-            t = cmd.get("type")
-
-            if t == "move":
-                self._handle_move(
-                    cmd.get("value"),
-                    cmd.get("duration", 1.5)
-                )
-
-            elif t == "camera":
-                self._handle_camera(cmd.get("value"))
-
-            elif t == "buzzer":
-                self._handle_buzzer(cmd.get("count", 1))
-
-            elif t == "led":
-                self._handle_led(cmd.get("value"))
+            self._execute_command(cmd)
 
         return reply
+
+    # =========================
+    def _execute_command(self, cmd):
+        t = cmd.get("type")
+
+        if t == "move":
+            self._handle_move(
+                cmd.get("value"),
+                cmd.get("duration", 1.5)
+            )
+
+        elif t == "camera":
+            self._handle_camera(cmd.get("value"))
+
+        elif t == "buzzer":
+            self._handle_buzzer(cmd.get("count", 1))
+
+        elif t == "led":
+            self._handle_led(cmd.get("value"))
+
+        elif t == "dance":
+            self._handle_dance()
 
     # =========================
     def _extract_json(self, text):
@@ -100,29 +119,33 @@ class VoiceExecutor:
 
     # =========================
     def _handle_move(self, direction, duration=1.5):
-        if not self.cmd_pub:
-            return
 
-        t = Twist()
+        def run():
+            if not self.cmd_pub:
+                return
 
-        if direction == "forward":
-            t.linear.x = 0.3
-        elif direction == "backward":
-            t.linear.x = -0.3
-        elif direction == "left":
-            t.linear.y = 0.3
-        elif direction == "right":
-            t.linear.y = -0.3
-        elif direction == "turn_left":
-            t.angular.z = 1.0
-        elif direction == "turn_right":
-            t.angular.z = -1.0
-        else:
-            return
+            t = Twist()
 
-        self.cmd_pub.publish(t)
-        time.sleep(duration)
-        self.cmd_pub.publish(Twist())
+            if direction == "forward":
+                t.linear.x = 0.3
+            elif direction == "backward":
+                t.linear.x = -0.3
+            elif direction == "left":
+                t.linear.y = 0.3
+            elif direction == "right":
+                t.linear.y = -0.3
+            elif direction == "turn_left":
+                t.angular.z = 1.0
+            elif direction == "turn_right":
+                t.angular.z = -1.0
+            else:
+                return
+
+            self.cmd_pub.publish(t)
+            time.sleep(duration)
+            self.cmd_pub.publish(Twist())
+
+        threading.Thread(target=run, daemon=True).start()
 
     # =========================
     def _handle_camera(self, action):
@@ -130,19 +153,19 @@ class VoiceExecutor:
             return
 
         if action == "look_up":
-            servo_id, pos = 1, 1300
+            sid, pos = 1, 1300
         elif action == "look_down":
-            servo_id, pos = 1, 1700
+            sid, pos = 1, 1700
         elif action == "look_left":
-            servo_id, pos = 2, 1700
+            sid, pos = 2, 1700
         elif action == "look_right":
-            servo_id, pos = 2, 1300
+            sid, pos = 2, 1300
         else:
             return
 
         msg = SetPWMServoState()
         s = PWMServoState()
-        s.id = [servo_id]
+        s.id = [sid]
         s.position = [pos]
         msg.state = [s]
         msg.duration = 0.2
@@ -190,3 +213,16 @@ class VoiceExecutor:
                 RGBState(index=1, red=r, green=g, blue=b),
             ]
             self.sonar_pub.publish(msg)
+
+    # =========================
+    def _handle_dance(self):
+
+        def run():
+            self.dance.fun_dance()
+
+        threading.Thread(target=run, daemon=True).start()
+
+    # =========================
+    def stop_all(self):
+        self.cmd_pub.publish(Twist())
+        self._handle_led("off")

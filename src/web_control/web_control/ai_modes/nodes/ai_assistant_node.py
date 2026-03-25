@@ -62,9 +62,10 @@ class AIAssistantNode(Node):
         )
 
         # =========================
-        # VISION
+        # VISION NODE
         # =========================
         self.vision_executor = VisionExecutor()
+        self.vision_executor.node = self  # 🔥 connect systems
 
         threading.Thread(
             target=rclpy.spin,
@@ -73,7 +74,7 @@ class AIAssistantNode(Node):
         ).start()
 
         # =========================
-        # VOICE
+        # VOICE EXECUTOR
         # =========================
         self.voice_executor = VoiceExecutor(
             rgb_pub=self.rgb_pub,
@@ -127,6 +128,9 @@ class AIAssistantNode(Node):
 
         while True:
             try:
+                # 🔥 ALWAYS RUN GESTURES
+                self.vision_executor.process_gesture()
+
                 if self.kws.wakeup():
 
                     speech.play_audio(self.wakeup_audio)
@@ -139,8 +143,15 @@ class AIAssistantNode(Node):
 
                     print("User:", text)
 
+                    # =========================
+                    # VISION (OpenRouter)
+                    # =========================
                     if self.is_vision_request(text):
                         result = self.vision_executor.describe()
+
+                    # =========================
+                    # VOICE COMMANDS
+                    # =========================
                     else:
                         result = self.voice_executor.process(text)
 
