@@ -3,9 +3,6 @@ import time
 from flask import request, jsonify
 
 
-# -------------------------------------------------
-# Register API routes
-# -------------------------------------------------
 def register_control_routes(server):
 
     server.app.add_url_rule(
@@ -45,7 +42,7 @@ def register_control_routes(server):
 
 
 # -------------------------------------------------
-# Run node
+# RUN NODE
 # -------------------------------------------------
 def api_run_node(server):
 
@@ -54,16 +51,18 @@ def api_run_node(server):
 
     try:
 
-        # stop previous node
+        # kill previous node
         if hasattr(server, "current_process") and server.current_process:
             server.current_process.kill()
             server.current_process = None
             time.sleep(0.5)
 
-        # reset robot movement
+        # 🔥 RESET EVERYTHING
         server.robot.move_x = 0.0
         server.robot.move_y = 0.0
         server.robot.rotate_dir = 0
+        server.robot.cam_pan = 0.0
+        server.robot.cam_tilt = 0.0
 
         # -------------------------------------------------
         # JOYSTICK MODE
@@ -71,9 +70,15 @@ def api_run_node(server):
         if node == "joystick":
 
             server.robot.manual_control = True
+            server.robot.stop_motion_once()
+
             return jsonify({"message": "Joystick mode enabled"})
 
+        # -------------------------------------------------
+        # ALL OTHER MODES → DISABLE UI CONTROL
+        # -------------------------------------------------
         server.robot.manual_control = False
+        server.robot.stop_motion_once()
 
         # -------------------------------------------------
         # SELECT NODE
@@ -116,7 +121,7 @@ def api_run_node(server):
             return jsonify({"message": "Unknown node"}), 400
 
         # -------------------------------------------------
-        # LAUNCH NODE
+        # START NODE
         # -------------------------------------------------
         server.current_process = subprocess.Popen(cmd)
 
@@ -129,27 +134,24 @@ def api_run_node(server):
 
 
 # -------------------------------------------------
-# Stop node
+# STOP NODE
 # -------------------------------------------------
 def api_stop_node(server):
 
     try:
 
-        # kill running process
         if hasattr(server, "current_process") and server.current_process:
             server.current_process.kill()
             server.current_process = None
 
-        server.robot.manual_control = True
-
-        # reset robot movement
         server.robot.move_x = 0.0
         server.robot.move_y = 0.0
         server.robot.rotate_dir = 0
-
-        # reset camera
         server.robot.cam_pan = 0.0
         server.robot.cam_tilt = 0.0
+
+        server.robot.stop_motion_once()
+        server.robot.manual_control = True
 
         return jsonify({"message": "Node stopped"})
 
@@ -159,7 +161,7 @@ def api_stop_node(server):
 
 
 # -------------------------------------------------
-# Move joystick
+# MOVE
 # -------------------------------------------------
 def api_move(server):
 
@@ -176,20 +178,17 @@ def api_move(server):
 
 
 # -------------------------------------------------
-# Rotate buttons
+# ROTATE
 # -------------------------------------------------
 def api_rotate(server):
 
     data = request.json or {}
-
     direction = data.get("direction", "stop")
 
     if direction == "cw":
         rot = -1
-
     elif direction == "ccw":
         rot = 1
-
     else:
         rot = 0
 
@@ -200,7 +199,7 @@ def api_rotate(server):
 
 
 # -------------------------------------------------
-# Camera joystick
+# CAMERA
 # -------------------------------------------------
 def api_camera(server):
 
@@ -209,7 +208,8 @@ def api_camera(server):
     pan = float(data.get("pan", data.get("x", 0.0)))
     tilt = float(data.get("tilt", data.get("y", 0.0)))
 
-    server.robot.cam_pan = pan
-    server.robot.cam_tilt = tilt
+    if server.robot.manual_control:
+        server.robot.cam_pan = pan
+        server.robot.cam_tilt = tilt
 
     return jsonify({"status": "ok"})

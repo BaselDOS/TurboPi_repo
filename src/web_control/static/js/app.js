@@ -27,6 +27,7 @@ function initRun() {
   const modelLabel = document.getElementById('selectedMode');
   const joystickPanel = document.getElementById('joystickPanel');
   const cameraPanel = document.getElementById('cameraPanel');
+  const aiPanel = document.getElementById("aiPanel");
 
   document.querySelectorAll('.mode-card').forEach(btn => {
 
@@ -88,6 +89,17 @@ else if (selected === "avoidance") {
         img.src = "/stream?" + new Date().getTime();
     }
 
+}
+else if (selected === "ai") {
+
+    joystickPanel.classList.add("hidden");
+    cameraPanel.classList.remove("hidden");
+    aiPanel.classList.remove("hidden");
+
+    const img = document.getElementById("cameraFeed");
+    if (img) {
+        img.src = "/stream?" + new Date().getTime();
+    }
 }
   });
 

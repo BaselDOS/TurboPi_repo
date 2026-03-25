@@ -6,7 +6,7 @@ class RobotController:
 
     def __init__(self, node):
         self.node = node
-        
+
         self.manual_control = True
 
         self.move_x = 0.0
@@ -34,9 +34,19 @@ class RobotController:
         node.create_timer(0.05, self.movement_loop)
         node.create_timer(0.05, self.camera_loop)
 
+    # 🔥 ONE-TIME STOP (no loop conflict)
+    def stop_motion_once(self):
+        self.move_x = 0.0
+        self.move_y = 0.0
+        self.rotate_dir = 0
+        self.cmd_vel_pub.publish(Twist())
+
+    # 🔥 ONLY active in joystick mode
     def movement_loop(self):
+
         if not self.manual_control:
             return
+
         twist = Twist()
 
         twist.linear.x = self.move_y * 0.6
@@ -51,7 +61,12 @@ class RobotController:
 
         self.cmd_vel_pub.publish(twist)
 
+    # 🔥 disable camera control in AI mode
     def camera_loop(self):
+
+        if not self.manual_control:
+            return
+
         step = 10
 
         self.servo_x += int(self.cam_pan * step)
