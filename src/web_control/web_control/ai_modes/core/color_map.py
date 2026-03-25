@@ -21,4 +21,4 @@ COLOR_MAP = {
     "indigo": (75, 0, 130),
 }
 
-ALLOWED_LED_COLORS = list(COLOR_MAP.keys()) + ["off"]
+ALLOWED_LED_COLORS = list(COLOR_MAP.keys()) + ["off", "random"]

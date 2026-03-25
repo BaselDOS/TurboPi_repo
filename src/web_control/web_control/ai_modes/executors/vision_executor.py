@@ -11,7 +11,7 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
 from speech import speech
-from ai_modes.core.config import *
+from web_control.ai_modes.core.config import vllm_api_key, vllm_base_url
 
 
 class VisionExecutor(Node):
@@ -24,6 +24,7 @@ class VisionExecutor(Node):
         # =========================
         self.bridge = CvBridge()
         self.latest_frame = None
+        self.latest_debug_frame = None
 
         self.subscription = self.create_subscription(
             Image,
@@ -33,45 +34,62 @@ class VisionExecutor(Node):
         )
 
         # =========================
-        # VISION (OpenRouter)
+        # VISION (OpenRouter / vision model)
         # =========================
         self.client = speech.OpenAIAPI(vllm_api_key, vllm_base_url)
         self.model = "qwen/qwen3.5-flash-02-23"
 
         # =========================
-        # GESTURE SYSTEM
+        # LINK BACK TO AI NODE
         # =========================
         self.node = None  # injected from AI node
 
+        # =========================
+        # HAND GESTURES
+        # =========================
         self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(max_num_hands=1)
+        self.mp_draw = mp.solutions.drawing_utils
+        self.hands = self.mp_hands.Hands(
+            max_num_hands=1,
+            min_detection_confidence=0.6,
+            min_tracking_confidence=0.6
+        )
 
         self.last_gesture = None
-        self.last_time = 0
-
+        self.last_time = 0.0
         self.hold_start = None
-
         self.gesture_sequence = []
-        self.seq_time = 0
+        self.seq_time = 0.0
+
+        # =========================
+        # FACE DETECTION
+        # =========================
+        self.mp_face = mp.solutions.face_detection
+        self.face = self.mp_face.FaceDetection(
+            model_selection=0,
+            min_detection_confidence=0.6
+        )
 
     # =========================
     def image_callback(self, msg):
         try:
-            self.latest_frame = self.bridge.imgmsg_to_cv2(
+            frame = self.bridge.imgmsg_to_cv2(
                 msg,
                 desired_encoding="bgr8"
             )
+            self.latest_frame = frame
+            self.latest_debug_frame = frame.copy()
         except Exception as e:
             print("CV Bridge error:", e)
 
     # =========================
-    # 🔥 KEEP THIS — DO NOT TOUCH
+    # KEEP THIS
     def describe(self):
 
         if self.latest_frame is None:
             return "I don't see anything yet."
 
-        print("Sending image to OpenRouter...")
+        print("Sending image to vision model...")
 
         try:
             result = self.client.vllm(
@@ -87,31 +105,129 @@ class VisionExecutor(Node):
             return "Vision processing failed."
 
     # =========================
-    # 🔥 NEW: GESTURE SYSTEM
+    def process_face(self):
+
+        if self.latest_frame is None:
+            return
+
+        frame = self.latest_frame.copy()
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.face.process(rgb)
+
+        found_face = False
+
+        if results.detections:
+            h, w = frame.shape[:2]
+
+            for detection in results.detections:
+                bbox = detection.location_data.relative_bounding_box
+
+                x = int(bbox.xmin * w)
+                y = int(bbox.ymin * h)
+                bw = int(bbox.width * w)
+                bh = int(bbox.height * h)
+
+                x = max(0, x)
+                y = max(0, y)
+                bw = max(1, bw)
+                bh = max(1, bh)
+
+                cv2.rectangle(frame, (x, y), (x + bw, y + bh), (0, 255, 0), 2)
+                cv2.putText(
+                    frame,
+                    "FACE",
+                    (x, max(20, y - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 255, 0),
+                    2
+                )
+                found_face = True
+
+        if found_face:
+            cv2.putText(
+                frame,
+                "FACE MODE",
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 0),
+                2
+            )
+        else:
+            cv2.putText(
+                frame,
+                "FACE MODE - NO FACE",
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 0, 255),
+                2
+            )
+
+        self.latest_debug_frame = frame
+
+    # =========================
     def process_gesture(self):
 
         if self.latest_frame is None or self.node is None:
             return
 
-        frame = self.latest_frame
-
+        frame = self.latest_frame.copy()
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.hands.process(rgb)
 
         if not results.multi_hand_landmarks:
+            cv2.putText(
+                frame,
+                "GESTURE MODE - NO HAND",
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 0, 255),
+                2
+            )
+            self.latest_debug_frame = frame
             return
 
         hand = results.multi_hand_landmarks[0]
+        self.mp_draw.draw_landmarks(
+            frame,
+            hand,
+            self.mp_hands.HAND_CONNECTIONS
+        )
 
         gesture = self._detect_gesture(hand)
+
+        if gesture:
+            cv2.putText(
+                frame,
+                f"GESTURE: {gesture}",
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 0),
+                2
+            )
+        else:
+            cv2.putText(
+                frame,
+                "GESTURE MODE",
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 255),
+                2
+            )
+
+        self.latest_debug_frame = frame
+
         if not gesture:
             return
 
         now = time.time()
 
-        # =========================
         # HOLD STOP
-        # =========================
         if gesture == self.last_gesture:
             if self.hold_start is None:
                 self.hold_start = now
@@ -125,10 +241,10 @@ class VisionExecutor(Node):
             self.hold_start = None
 
         # debounce
-        if gesture == self.last_gesture:
+        if gesture == self.last_gesture and (now - self.last_time) < 0.5:
             return
 
-        if now - self.last_time < 1.0:
+        if now - self.last_time < 0.5:
             return
 
         self.last_time = now
@@ -138,9 +254,6 @@ class VisionExecutor(Node):
 
         ve = self.node.voice_executor
 
-        # =========================
-        # ACTIONS
-        # =========================
         if gesture == "one":
             ve._handle_move("forward", 1)
 
@@ -156,9 +269,7 @@ class VisionExecutor(Node):
         elif gesture == "thumb_up":
             ve._handle_dance()
 
-        # =========================
-        # SEQUENCE (dance combo)
-        # =========================
+        # gesture sequence
         if now - self.seq_time > 2:
             self.gesture_sequence = []
 
@@ -175,7 +286,6 @@ class VisionExecutor(Node):
     def _detect_gesture(self, hand):
 
         tips = [4, 8, 12, 16, 20]
-
         fingers = []
 
         fingers.append(hand.landmark[4].x < hand.landmark[3].x)

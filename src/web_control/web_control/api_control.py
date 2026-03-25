@@ -94,11 +94,20 @@ def api_run_node(server):
 
         elif node == "avoidance":
 
-            # run your new avoidance package
             cmd = [
-                "python3",
-                "-m",
-                "web_control.avoidance.avoidance_node"
+                "ros2",
+                "run",
+                "web_control",
+                "avoidance_node"
+            ]
+
+        elif node == "ai":
+
+            cmd = [
+                "ros2",
+                "run",
+                "web_control",
+                "ai_assistant_node"
             ]
 
         else:
@@ -106,14 +115,12 @@ def api_run_node(server):
             server.robot.manual_control = True
             return jsonify({"message": "Unknown node"}), 400
 
-
         # -------------------------------------------------
         # LAUNCH NODE
         # -------------------------------------------------
         server.current_process = subprocess.Popen(cmd)
 
         return jsonify({"message": f"{node} started"})
-
 
     except Exception as e:
 

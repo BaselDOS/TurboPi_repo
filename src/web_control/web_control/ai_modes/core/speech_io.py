@@ -1,5 +1,6 @@
 from speech import speech, awake
 
+
 class SpeechIO:
     def __init__(self):
         self.port = '/dev/ttyUSB0'

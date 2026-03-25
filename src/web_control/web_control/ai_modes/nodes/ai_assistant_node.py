@@ -7,6 +7,7 @@ import threading
 
 import rclpy
 from rclpy.node import Node
+from ament_index_python.packages import get_package_share_directory
 
 from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import (
@@ -17,8 +18,8 @@ from ros_robot_controller_msgs.msg import (
 
 from speech import speech, awake
 
-from ai_modes.executors.voice_executor import VoiceExecutor
-from ai_modes.executors.vision_executor import VisionExecutor
+from web_control.ai_modes.executors.voice_executor import VoiceExecutor
+from web_control.ai_modes.executors.vision_executor import VisionExecutor
 
 
 class AIAssistantNode(Node):
@@ -28,9 +29,8 @@ class AIAssistantNode(Node):
 
         print("Initializing AI Assistant Node...")
 
-        # =========================
-        # PUBLISHERS
-        # =========================
+        self.vision_mode = "idle"
+
         self.rgb_pub = self.create_publisher(
             RGBStates,
             "/ros_robot_controller/set_rgb",
@@ -61,11 +61,8 @@ class AIAssistantNode(Node):
             10
         )
 
-        # =========================
-        # VISION NODE
-        # =========================
         self.vision_executor = VisionExecutor()
-        self.vision_executor.node = self  # 🔥 connect systems
+        self.vision_executor.node = self
 
         threading.Thread(
             target=rclpy.spin,
@@ -73,9 +70,6 @@ class AIAssistantNode(Node):
             daemon=True
         ).start()
 
-        # =========================
-        # VOICE EXECUTOR
-        # =========================
         self.voice_executor = VoiceExecutor(
             rgb_pub=self.rgb_pub,
             sonar_pub=self.sonar_pub,
@@ -84,10 +78,8 @@ class AIAssistantNode(Node):
             servo_pub=self.servo_pub,
             buzzer_pub=self.buzzer_pub
         )
+        self.voice_executor.node = self
 
-        # =========================
-        # AUDIO
-        # =========================
         port = "/dev/ttyUSB0"
         self.kws = awake.WonderEchoPro(port)
 
@@ -96,18 +88,18 @@ class AIAssistantNode(Node):
 
         self.tts = speech.RealTimeOpenAITTS()
 
-        base = os.path.dirname(os.path.abspath(__file__))
+        pkg_path = get_package_share_directory('web_control')
+        audio_path = os.path.join(pkg_path, 'ai_modes', 'resources', 'audio')
 
-        self.wakeup_audio = os.path.join(base, "../resources/audio/wakeup.wav")
-        self.start_audio = os.path.join(base, "../resources/audio/start_audio.wav")
-        self.no_voice_audio = os.path.join(base, "../resources/audio/no_voice.wav")
+        self.wakeup_audio = os.path.join(audio_path, 'wakeup.wav')
+        self.start_audio = os.path.join(audio_path, 'start_audio.wav')
+        self.no_voice_audio = os.path.join(audio_path, 'no_voice.wav')
 
         speech.set_volume(80)
         speech.play_audio(self.start_audio)
 
-        print("✅ AI Assistant Ready")
+        print("AI Assistant Ready")
 
-    # =========================
     def is_vision_request(self, text):
         t = (text or "").lower()
 
@@ -120,16 +112,18 @@ class AIAssistantNode(Node):
 
         return any(k in t for k in triggers)
 
-    # =========================
     def run(self):
 
-        print("🎤 Waiting for wake word...")
+        print("Waiting for wake word...")
         self.kws.start()
 
         while True:
             try:
-                # 🔥 ALWAYS RUN GESTURES
-                self.vision_executor.process_gesture()
+                if self.vision_mode == "gesture":
+                    self.vision_executor.process_gesture()
+
+                elif self.vision_mode == "face":
+                    self.vision_executor.process_face()
 
                 if self.kws.wakeup():
 
@@ -143,15 +137,8 @@ class AIAssistantNode(Node):
 
                     print("User:", text)
 
-                    # =========================
-                    # VISION (OpenRouter)
-                    # =========================
                     if self.is_vision_request(text):
                         result = self.vision_executor.describe()
-
-                    # =========================
-                    # VOICE COMMANDS
-                    # =========================
                     else:
                         result = self.voice_executor.process(text)
 

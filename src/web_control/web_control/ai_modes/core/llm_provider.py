@@ -1,5 +1,6 @@
-from core.config import *
+from web_control.ai_modes.core.config import llm_api_key, llm_base_url
 from speech import speech
+
 
 class LLMProvider:
     def __init__(self):

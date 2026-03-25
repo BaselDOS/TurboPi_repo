@@ -7,9 +7,9 @@ import threading
 from datetime import datetime
 from openai import OpenAI
 
-from ai_modes.core.config import llm_api_key, llm_base_url
-from ai_modes.core.color_map import COLOR_MAP, ALLOWED_LED_COLORS
-from ai_modes.core.prompts import VOICE_ASSISTANT_PROMPT
+from web_control.ai_modes.core.config import llm_api_key, llm_base_url
+from web_control.ai_modes.core.color_map import COLOR_MAP, ALLOWED_LED_COLORS
+from web_control.ai_modes.core.prompts import VOICE_ASSISTANT_PROMPT
 
 from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import (
@@ -18,7 +18,7 @@ from ros_robot_controller_msgs.msg import (
     BuzzerState
 )
 
-from ai_modes.actions.dance_controller import DanceController
+from web_control.ai_modes.actions.dance_controller import DanceController
 
 
 class VoiceExecutor:
@@ -44,7 +44,6 @@ class VoiceExecutor:
         self.buzzer_pub = buzzer_pub
         self.logger = logger
 
-        # 🔥 Dance controller
         self.dance = DanceController(
             cmd_pub=self.cmd_pub,
             rgb_pub=self.rgb_pub,
@@ -80,7 +79,7 @@ class VoiceExecutor:
         reply = data.get("reply", "Okay.")
         commands = data.get("commands", [])
 
-        # 🔥 execute commands sequentially but NON-BLOCKING globally
+        # 🔥 SEQUENTIAL execution (important fix)
         for cmd in commands:
             self._execute_command(cmd)
 
@@ -91,9 +90,14 @@ class VoiceExecutor:
         t = cmd.get("type")
 
         if t == "move":
+            duration = cmd.get("duration")
+            if duration is None:
+                print("Missing duration → skipping move")
+                return
+
             self._handle_move(
                 cmd.get("value"),
-                cmd.get("duration", 1.5)
+                duration
             )
 
         elif t == "camera":
@@ -118,34 +122,32 @@ class VoiceExecutor:
             return None
 
     # =========================
+    # 🔥 FIXED: BLOCKING movement (no threads)
     def _handle_move(self, direction, duration=1.5):
 
-        def run():
-            if not self.cmd_pub:
-                return
+        if not self.cmd_pub:
+            return
 
-            t = Twist()
+        t = Twist()
 
-            if direction == "forward":
-                t.linear.x = 0.3
-            elif direction == "backward":
-                t.linear.x = -0.3
-            elif direction == "left":
-                t.linear.y = 0.3
-            elif direction == "right":
-                t.linear.y = -0.3
-            elif direction == "turn_left":
-                t.angular.z = 1.0
-            elif direction == "turn_right":
-                t.angular.z = -1.0
-            else:
-                return
+        if direction == "forward":
+            t.linear.x = 0.3
+        elif direction == "backward":
+            t.linear.x = -0.3
+        elif direction == "left":
+            t.linear.y = 0.3
+        elif direction == "right":
+            t.linear.y = -0.3
+        elif direction == "turn_left":
+            t.angular.z = 1.0
+        elif direction == "turn_right":
+            t.angular.z = -1.0
+        else:
+            return
 
-            self.cmd_pub.publish(t)
-            time.sleep(duration)
-            self.cmd_pub.publish(Twist())
-
-        threading.Thread(target=run, daemon=True).start()
+        self.cmd_pub.publish(t)
+        time.sleep(duration)
+        self.cmd_pub.publish(Twist())
 
     # =========================
     def _handle_camera(self, action):
@@ -171,6 +173,7 @@ class VoiceExecutor:
         msg.duration = 0.2
 
         self.servo_pub.publish(msg)
+        time.sleep(0.4)
 
     # =========================
     def _handle_buzzer(self, count=1):
@@ -188,9 +191,16 @@ class VoiceExecutor:
             time.sleep(0.3)
 
     # =========================
+    # 🔥 FIXED: robust LED handling
     def _handle_led(self, color):
 
+        if not color:
+            return
+
+        color = color.strip().lower()
+
         if color not in ALLOWED_LED_COLORS:
+            print("Invalid color:", color)
             return
 
         if color == "off":
@@ -198,21 +208,27 @@ class VoiceExecutor:
         else:
             r, g, b = COLOR_MAP[color]
 
-        if self.rgb_pub:
-            msg = RGBStates()
-            msg.states = [
-                RGBState(index=1, red=r, green=g, blue=b),
-                RGBState(index=2, red=r, green=g, blue=b),
-            ]
-            self.rgb_pub.publish(msg)
+        def publish_loop():
+            for _ in range(3):  # 🔥 important
+                if self.rgb_pub:
+                    msg = RGBStates()
+                    msg.states = [
+                        RGBState(index=1, red=r, green=g, blue=b),
+                        RGBState(index=2, red=r, green=g, blue=b),
+                    ]
+                    self.rgb_pub.publish(msg)
 
-        if self.sonar_pub:
-            msg = RGBStates()
-            msg.states = [
-                RGBState(index=0, red=r, green=g, blue=b),
-                RGBState(index=1, red=r, green=g, blue=b),
-            ]
-            self.sonar_pub.publish(msg)
+                if self.sonar_pub:
+                    msg = RGBStates()
+                    msg.states = [
+                        RGBState(index=0, red=r, green=g, blue=b),
+                        RGBState(index=1, red=r, green=g, blue=b),
+                    ]
+                    self.sonar_pub.publish(msg)
+
+                time.sleep(0.05)
+
+        threading.Thread(target=publish_loop, daemon=True).start()
 
     # =========================
     def _handle_dance(self):
