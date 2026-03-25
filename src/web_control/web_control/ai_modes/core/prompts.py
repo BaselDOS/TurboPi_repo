@@ -79,6 +79,10 @@ BUZZER:
 - Format: {"type":"buzzer","count":N}
 - count must be a positive integer
 
+SING::
+- Use {"type":"sing"} only
+- Do not add extra fields like style
+
 MOVE RULES:
 - Every move command MUST include "duration"
 - duration must be a number
