@@ -1,3 +1,4 @@
+import signal
 import subprocess
 import time
 from flask import request, jsonify
@@ -40,6 +41,18 @@ def register_control_routes(server):
     )
 
 
+def _hard_stop_robot(server, repeats=10, delay=0.05):
+    server.robot.move_x = 0.0
+    server.robot.move_y = 0.0
+    server.robot.rotate_dir = 0
+    server.robot.cam_pan = 0.0
+    server.robot.cam_tilt = 0.0
+
+    for _ in range(repeats):
+        server.robot.stop_motion_once()
+        time.sleep(delay)
+
+
 def _stop_current_process(server):
     proc = getattr(server, "current_process", None)
     if not proc:
@@ -47,12 +60,19 @@ def _stop_current_process(server):
 
     try:
         if proc.poll() is None:
-            proc.terminate()
+            # 1) ask nicely first so ROS/Python finally blocks can run
             try:
+                proc.send_signal(signal.SIGINT)
                 proc.wait(timeout=2.0)
             except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=1.0)
+                # 2) then try terminate
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=1.5)
+                except subprocess.TimeoutExpired:
+                    # 3) last resort only
+                    proc.kill()
+                    proc.wait(timeout=1.0)
     except Exception:
         try:
             proc.kill()
@@ -63,12 +83,7 @@ def _stop_current_process(server):
 
 
 def _reset_robot_state(server):
-    server.robot.move_x = 0.0
-    server.robot.move_y = 0.0
-    server.robot.rotate_dir = 0
-    server.robot.cam_pan = 0.0
-    server.robot.cam_tilt = 0.0
-    server.robot.stop_motion_once()
+    _hard_stop_robot(server, repeats=10, delay=0.05)
 
 
 # -------------------------------------------------
@@ -79,12 +94,13 @@ def api_run_node(server):
     node = (data.get("node") or "").strip()
 
     try:
+        # stop previous mode cleanly
         _stop_current_process(server)
-        _reset_robot_state(server)
+
+        # force stop robot before switching
+        _hard_stop_robot(server, repeats=10, delay=0.05)
 
         server.current_mode = node if node else "idle"
-
-        # Default stream source
         server.stream_source = "raw"
 
         # -------------------------------------------------
@@ -96,7 +112,7 @@ def api_run_node(server):
             return jsonify({"message": "Joystick mode enabled"})
 
         # -------------------------------------------------
-        # OTHER MODES
+        # ALL OTHER MODES
         # -------------------------------------------------
         server.robot.manual_control = False
 
@@ -135,6 +151,7 @@ def api_run_node(server):
         else:
             server.current_mode = "idle"
             server.robot.manual_control = True
+            _hard_stop_robot(server, repeats=10, delay=0.05)
             return jsonify({"message": f"Unknown node: {node}"}), 400
 
         server.current_process = subprocess.Popen(cmd)
@@ -144,7 +161,7 @@ def api_run_node(server):
         server.current_mode = "idle"
         server.stream_source = "raw"
         server.robot.manual_control = True
-        _reset_robot_state(server)
+        _hard_stop_robot(server, repeats=10, delay=0.05)
         return jsonify({"message": str(e)}), 500
 
 
@@ -159,7 +176,7 @@ def api_stop_node(server):
         server.stream_source = "raw"
         server.robot.manual_control = True
 
-        _reset_robot_state(server)
+        _hard_stop_robot(server, repeats=15, delay=0.05)
 
         return jsonify({"message": "Node stopped"})
 
@@ -210,7 +227,7 @@ def api_camera(server):
     data = request.json or {}
 
     pan = float(data.get("pan", data.get("x", 0.0)))
-    tilt = float(data.get("tilt", data.get("y", 0.0)))
+    tilt = float(data.get("tilt", data.get("y", data.get("tilt", 0.0))))
 
     if server.robot.manual_control and server.current_mode == "joystick":
         server.robot.cam_pan = pan
