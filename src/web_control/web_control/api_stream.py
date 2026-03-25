@@ -1,6 +1,5 @@
 import time
 import cv2
-
 from flask import Response
 
 
@@ -15,21 +14,32 @@ def stream(server):
     )
 
 
+def _get_active_frame(server):
+    with server.frame_lock:
+        if server.stream_source == "debug" and server.debug_frame is not None:
+            return server.debug_frame.copy()
+
+        if server.raw_frame is not None:
+            return server.raw_frame.copy()
+
+        return None
+
+
 def generate_frames(server):
     encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 70]
 
     while True:
-        with server.frame_lock:
-            frame = None if server.frame is None else server.frame.copy()
+        frame = _get_active_frame(server)
 
         if frame is None:
-            time.sleep(0.01)
+            time.sleep(0.03)
             continue
 
         frame = cv2.resize(frame, (640, 480))
 
         ret, buffer = cv2.imencode('.jpg', frame, encode_param)
         if not ret:
+            time.sleep(0.03)
             continue
 
         frame_bytes = buffer.tobytes()

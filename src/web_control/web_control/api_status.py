@@ -1,4 +1,5 @@
 import socket
+import time
 from flask import jsonify
 
 
@@ -10,7 +11,12 @@ def api_status(server):
     ip = get_ip()
     wifi_ok = (ip not in ("127.0.0.1", "0.0.0.0", "N/A"))
 
-    battery = server.battery_voltage
+    now = time.time()
+
+    camera_ok = (now - server.last_camera_time) < 2.5
+    battery_ok = (now - server.last_battery_time) < 5.0
+
+    battery = server.battery_voltage if battery_ok else None
 
     return jsonify({
         "wifi": "Connected" if wifi_ok else "Disconnected",
@@ -23,8 +29,10 @@ def api_status(server):
         "battery": f"{battery:.2f} V" if battery is not None else "N/A",
         "battery_ok": battery is not None,
 
-        "camera": "OK" if server.camera_ok else "Not Detected",
-        "camera_ok": server.camera_ok
+        "camera": "OK" if camera_ok else "Not Detected",
+        "camera_ok": camera_ok,
+
+        "mode": server.current_mode
     })
 
 

@@ -4,7 +4,6 @@ from flask import request, jsonify
 
 
 def register_control_routes(server):
-
     server.app.add_url_rule(
         '/api/run_node',
         'api_run_node',
@@ -41,95 +40,111 @@ def register_control_routes(server):
     )
 
 
+def _stop_current_process(server):
+    proc = getattr(server, "current_process", None)
+    if not proc:
+        return
+
+    try:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=1.0)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+    server.current_process = None
+
+
+def _reset_robot_state(server):
+    server.robot.move_x = 0.0
+    server.robot.move_y = 0.0
+    server.robot.rotate_dir = 0
+    server.robot.cam_pan = 0.0
+    server.robot.cam_tilt = 0.0
+    server.robot.stop_motion_once()
+
+
 # -------------------------------------------------
 # RUN NODE
 # -------------------------------------------------
 def api_run_node(server):
-
     data = request.json or {}
-    node = data.get("node")
+    node = (data.get("node") or "").strip()
 
     try:
+        _stop_current_process(server)
+        _reset_robot_state(server)
 
-        # kill previous node
-        if hasattr(server, "current_process") and server.current_process:
-            server.current_process.kill()
-            server.current_process = None
-            time.sleep(0.5)
+        server.current_mode = node if node else "idle"
 
-        # 🔥 RESET EVERYTHING
-        server.robot.move_x = 0.0
-        server.robot.move_y = 0.0
-        server.robot.rotate_dir = 0
-        server.robot.cam_pan = 0.0
-        server.robot.cam_tilt = 0.0
+        # Default stream source
+        server.stream_source = "raw"
 
         # -------------------------------------------------
-        # JOYSTICK MODE
+        # JOYSTICK MODE (internal control only)
         # -------------------------------------------------
         if node == "joystick":
-
             server.robot.manual_control = True
-            server.robot.stop_motion_once()
-
+            server.stream_source = "raw"
             return jsonify({"message": "Joystick mode enabled"})
 
         # -------------------------------------------------
-        # ALL OTHER MODES → DISABLE UI CONTROL
+        # OTHER MODES
         # -------------------------------------------------
         server.robot.manual_control = False
-        server.robot.stop_motion_once()
 
-        # -------------------------------------------------
-        # SELECT NODE
-        # -------------------------------------------------
         if node == "body_control":
-
             cmd = [
                 "python3",
                 "/home/ubuntu/ros2_ws/src/example/example/body_control.py"
             ]
+            server.stream_source = "raw"
 
         elif node == "pose":
-
             cmd = [
                 "python3",
                 "/home/ubuntu/ros2_ws/src/example/example/pose.py"
             ]
+            server.stream_source = "raw"
 
         elif node == "avoidance":
-
             cmd = [
                 "ros2",
                 "run",
                 "web_control",
                 "avoidance_node"
             ]
+            server.stream_source = "debug"
 
         elif node == "ai":
-
             cmd = [
                 "ros2",
                 "run",
                 "web_control",
                 "ai_assistant_node"
             ]
+            server.stream_source = "raw"
 
         else:
-
+            server.current_mode = "idle"
             server.robot.manual_control = True
-            return jsonify({"message": "Unknown node"}), 400
+            return jsonify({"message": f"Unknown node: {node}"}), 400
 
-        # -------------------------------------------------
-        # START NODE
-        # -------------------------------------------------
         server.current_process = subprocess.Popen(cmd)
-
         return jsonify({"message": f"{node} started"})
 
     except Exception as e:
-
+        server.current_mode = "idle"
+        server.stream_source = "raw"
         server.robot.manual_control = True
+        _reset_robot_state(server)
         return jsonify({"message": str(e)}), 500
 
 
@@ -137,26 +152,18 @@ def api_run_node(server):
 # STOP NODE
 # -------------------------------------------------
 def api_stop_node(server):
-
     try:
+        _stop_current_process(server)
 
-        if hasattr(server, "current_process") and server.current_process:
-            server.current_process.kill()
-            server.current_process = None
-
-        server.robot.move_x = 0.0
-        server.robot.move_y = 0.0
-        server.robot.rotate_dir = 0
-        server.robot.cam_pan = 0.0
-        server.robot.cam_tilt = 0.0
-
-        server.robot.stop_motion_once()
+        server.current_mode = "idle"
+        server.stream_source = "raw"
         server.robot.manual_control = True
+
+        _reset_robot_state(server)
 
         return jsonify({"message": "Node stopped"})
 
     except Exception as e:
-
         return jsonify({"message": str(e)}), 500
 
 
@@ -164,13 +171,12 @@ def api_stop_node(server):
 # MOVE
 # -------------------------------------------------
 def api_move(server):
-
     data = request.json or {}
 
     x = float(data.get("x", 0.0))
     y = float(data.get("y", 0.0))
 
-    if server.robot.manual_control:
+    if server.robot.manual_control and server.current_mode == "joystick":
         server.robot.move_x = x
         server.robot.move_y = y
 
@@ -181,7 +187,6 @@ def api_move(server):
 # ROTATE
 # -------------------------------------------------
 def api_rotate(server):
-
     data = request.json or {}
     direction = data.get("direction", "stop")
 
@@ -192,7 +197,7 @@ def api_rotate(server):
     else:
         rot = 0
 
-    if server.robot.manual_control:
+    if server.robot.manual_control and server.current_mode == "joystick":
         server.robot.rotate_dir = rot
 
     return jsonify({"status": "ok"})
@@ -202,13 +207,12 @@ def api_rotate(server):
 # CAMERA
 # -------------------------------------------------
 def api_camera(server):
-
     data = request.json or {}
 
     pan = float(data.get("pan", data.get("x", 0.0)))
     tilt = float(data.get("tilt", data.get("y", 0.0)))
 
-    if server.robot.manual_control:
+    if server.robot.manual_control and server.current_mode == "joystick":
         server.robot.cam_pan = pan
         server.robot.cam_tilt = tilt
 

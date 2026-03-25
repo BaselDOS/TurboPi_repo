@@ -1,4 +1,5 @@
 import threading
+import time
 
 from flask import Flask, render_template
 from flask_socketio import SocketIO
@@ -15,10 +16,18 @@ class WebServer:
         self.robot = node.robot
 
         self.battery_voltage = None
-        self.camera_ok = False
-        self.frame = None
-        self.frame_lock = threading.Lock()
+        self.last_battery_time = 0.0
+        self.last_camera_time = 0.0
 
+        self.camera_ok = False
+
+        self.raw_frame = None
+        self.debug_frame = None
+
+        self.current_mode = "idle"
+        self.stream_source = "raw"
+
+        self.frame_lock = threading.Lock()
         self.current_process = None
 
         self.app = Flask(
@@ -29,18 +38,18 @@ class WebServer:
 
         self.socketio = SocketIO(self.app, cors_allowed_origins="*")
 
-        # Page routes
         self.app.add_url_rule('/', 'index', self.index)
         self.app.add_url_rule('/run', 'run', self.run_page)
 
-        # API routes
         register_status_routes(self)
         register_control_routes(self)
         register_stream_routes(self)
 
-        # Start server thread
         t = threading.Thread(target=self._run_server, daemon=True)
         t.start()
+
+        h = threading.Thread(target=self._health_loop, daemon=True)
+        h.start()
 
     def index(self):
         return render_template('index.html')
@@ -55,3 +64,9 @@ class WebServer:
             port=5000,
             allow_unsafe_werkzeug=True
         )
+
+    def _health_loop(self):
+        while True:
+            now = time.time()
+            self.camera_ok = (now - self.last_camera_time) < 2.5
+            time.sleep(0.5)

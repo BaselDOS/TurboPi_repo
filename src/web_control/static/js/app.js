@@ -85,20 +85,24 @@ else if (selected === "avoidance") {
     cameraPanel.classList.remove("hidden");
 
     const img = document.getElementById("cameraFeed");
-    if (img) {
-        img.src = "/stream?" + new Date().getTime();
-    }
+    if (img && !img.src.includes("/stream")) {
+    img.src = "/stream";
+}
 
 }
 else if (selected === "ai") {
 
     joystickPanel.classList.add("hidden");
     cameraPanel.classList.remove("hidden");
-    aiPanel.classList.remove("hidden");
+
+    // FIX: only use aiPanel if it exists
+    if (aiPanel) {
+        aiPanel.classList.remove("hidden");
+    }
 
     const img = document.getElementById("cameraFeed");
-    if (img) {
-        img.src = "/stream?" + new Date().getTime();
+    if (img && !img.src.includes("/stream")) {
+        img.src = "/stream";
     }
 }
   });
@@ -115,7 +119,7 @@ else if (selected === "ai") {
 
     joystickPanel.classList.add("hidden");
     cameraPanel.classList.add("hidden");
-
+    if (aiPanel) aiPanel.classList.add("hidden");
     const img = document.getElementById("cameraFeed");
     if (img) {
         img.src = "";
@@ -127,3 +131,4 @@ else if (selected === "ai") {
 return { initHome, initRun };
 
 })();
+

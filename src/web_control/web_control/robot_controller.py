@@ -34,36 +34,35 @@ class RobotController:
         node.create_timer(0.05, self.movement_loop)
         node.create_timer(0.05, self.camera_loop)
 
-    # 🔥 ONE-TIME STOP (no loop conflict)
     def stop_motion_once(self):
         self.move_x = 0.0
         self.move_y = 0.0
         self.rotate_dir = 0
         self.cmd_vel_pub.publish(Twist())
 
-    # 🔥 ONLY active in joystick mode
     def movement_loop(self):
-
         if not self.manual_control:
             return
 
         twist = Twist()
 
-        twist.linear.x = self.move_y * 0.6
-        twist.linear.y = -self.move_x * 0.6
+        # forward/backward
+        twist.linear.x = float(self.move_y) * 0.6
 
+        # strafe left/right
+        twist.linear.y = float(-self.move_x) * 0.6
+
+        # rotate
         if self.rotate_dir == 1:
-            twist.angular.z = 8.0
+            twist.angular.z = 1.8
         elif self.rotate_dir == -1:
-            twist.angular.z = -8.0
+            twist.angular.z = -1.8
         else:
             twist.angular.z = 0.0
 
         self.cmd_vel_pub.publish(twist)
 
-    # 🔥 disable camera control in AI mode
     def camera_loop(self):
-
         if not self.manual_control:
             return
 

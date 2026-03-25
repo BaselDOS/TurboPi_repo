@@ -1,11 +1,13 @@
+import time
+
 import rclpy
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
-from std_msgs.msg import Float32MultiArray
 
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 from std_msgs.msg import UInt16
+
 from .robot_controller import RobotController
 from .web_server import WebServer
 
@@ -17,37 +19,32 @@ class WebControlNode(Node):
 
         pkg_share = get_package_share_directory('web_control')
 
-        # Robot control
         self.robot = RobotController(self)
-
-        # Web server
         self.web = WebServer(self, pkg_share)
-
         self.bridge = CvBridge()
 
-        # Camera subscriber
         self.camera_sub = self.create_subscription(
             Image,
-            '/image_raw',   # change this if your real topic is different
+            '/image_raw',
             self.camera_callback,
             10
         )
 
-        # Battery subscriber
         self.battery_sub = self.create_subscription(
             UInt16,
-            '/ros_robot_controller/battery',    # change this if your real topic is different
+            '/ros_robot_controller/battery',
             self.battery_callback,
             10
         )
 
-        #avoidance subscriber
         self.avoidance_sub = self.create_subscription(
             Image,
             '/avoidance/debug_image',
             self.avoidance_callback,
             10
         )
+
+        self.create_timer(0.5, self.health_timer)
 
         self.get_logger().info("UI server started")
 
@@ -56,37 +53,48 @@ class WebControlNode(Node):
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
 
             with self.web.frame_lock:
-                self.web.frame = frame
+                self.web.raw_frame = frame
 
+            self.web.last_camera_time = time.time()
             self.web.camera_ok = True
-        except Exception:
-            self.web.camera_ok = False
+
+        except Exception as e:
+            self.get_logger().warn(f"Camera callback error: {e}")
 
     def battery_callback(self, msg):
         try:
-            self.web.battery_voltage = msg.data/1000.0
-        except Exception:
-            self.web.battery_voltage = None
+            self.web.battery_voltage = msg.data / 1000.0
+            self.web.last_battery_time = time.time()
+        except Exception as e:
+            self.get_logger().warn(f"Battery callback error: {e}")
 
     def avoidance_callback(self, msg):
-
         try:
-            frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
 
             with self.web.frame_lock:
-                self.web.frame = frame
+                self.web.debug_frame = frame
 
-            self.web.camera_ok = True
+        except Exception as e:
+            self.get_logger().warn(f"Avoidance debug callback error: {e}")
 
-        except Exception:
-            pass
+    def health_timer(self):
+        now = time.time()
+
+        if now - self.web.last_camera_time > 2.5:
+            self.web.camera_ok = False
+
+        if now - self.web.last_battery_time > 5.0:
+            self.web.battery_voltage = None
+
 
 def main(args=None):
     rclpy.init(args=args)
 
     node = WebControlNode()
 
-    rclpy.spin(node)
-
-    node.destroy_node()
-    rclpy.shutdown()
+    try:
+        rclpy.spin(node)
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
