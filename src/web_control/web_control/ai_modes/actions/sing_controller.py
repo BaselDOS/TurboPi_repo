@@ -1,5 +1,6 @@
 import time
 import subprocess
+import threading
 from ament_index_python.packages import get_package_share_directory
 import os
 from geometry_msgs.msg import Twist
@@ -7,7 +8,6 @@ from ros_robot_controller_msgs.msg import (
     RGBStates, RGBState,
     SetPWMServoState, PWMServoState
 )
-
 
 class SingController:
 
@@ -20,10 +20,6 @@ class SingController:
 
     # =========================
     def _play_music(self):
-        import subprocess
-        import os
-        from ament_index_python.packages import get_package_share_directory
-
         try:
             pkg_path = get_package_share_directory("web_control")
 
@@ -37,13 +33,22 @@ class SingController:
 
             print("Playing:", audio_path)
 
-            self.music_proc = subprocess.Popen([
-                "aplay",
-                audio_path
-            ])
+            def run_audio():
+                try:
+                    subprocess.run(
+                        ["aplay", audio_path],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                except Exception as e:
+                    print("Audio error:", e)
+
+        # 🔥 RUN IN BACKGROUND THREAD
+            threading.Thread(target=run_audio, daemon=True).start()
 
         except Exception as e:
             print("Audio error:", e)
+
     # =========================
     def _stop_music(self):
         if self.music_proc:
@@ -82,7 +87,6 @@ class SingController:
 
         # 🔥 start music
         self._play_music()
-        time.sleep(1.0)
 
         # =========================
         # 🔥 LOOP (balanced speed)

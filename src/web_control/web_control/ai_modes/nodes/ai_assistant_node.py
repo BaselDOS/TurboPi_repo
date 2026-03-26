@@ -8,7 +8,7 @@ import threading
 import rclpy
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
-from web_control.actions.sing_controller import SingController
+
 
 from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import (
@@ -79,12 +79,6 @@ class AIAssistantNode(Node):
             servo_pub=self.servo_pub,
             buzzer_pub=self.buzzer_pub
         )
-        self.sing_controller = SingController(
-            self.cmd_vel_pub,
-            self.rgb_pub,
-            self.servo_pub
-        )
-
         self.voice_executor.node = self
 
         port = "/dev/ttyUSB0"
@@ -156,7 +150,7 @@ class AIAssistantNode(Node):
 
                     self.tts.tts(result)
 
-                time.sleep(0.02)
+                time.sleep(0.5)
 
             except Exception as e:
                 print("ERROR:", e)

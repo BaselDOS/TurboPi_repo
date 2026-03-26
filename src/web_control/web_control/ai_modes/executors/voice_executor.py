@@ -10,6 +10,7 @@ from openai import OpenAI
 from web_control.ai_modes.core.config import llm_api_key, llm_base_url
 from web_control.ai_modes.core.color_map import COLOR_MAP, ALLOWED_LED_COLORS
 from web_control.ai_modes.core.prompts import VOICE_ASSISTANT_PROMPT
+from web_control.ai_modes.actions.sing_controller import SingController
 
 from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import (
@@ -49,6 +50,12 @@ class VoiceExecutor:
             rgb_pub=self.rgb_pub,
             servo_pub=self.servo_pub,
             buzzer_pub=self.buzzer_pub
+        )
+        
+        self.sing = SingController(
+            cmd_pub=self.cmd_pub,
+            rgb_pub=self.rgb_pub,
+            servo_pub=self.servo_pub
         )
 
     # =========================
@@ -111,6 +118,9 @@ class VoiceExecutor:
 
         elif t == "dance":
             self._handle_dance()
+
+        elif t == "sing":
+            self._handle_sing()
 
     # =========================
     def _extract_json(self, text):
@@ -237,6 +247,14 @@ class VoiceExecutor:
             self.dance.fun_dance()
 
         threading.Thread(target=run, daemon=True).start()
+     # =========================
+    def _handle_sing(self):
+
+        def run():
+            self.sing.sing()
+
+        threading.Thread(target=run, daemon=True).start()
+    
 
     # =========================
     def stop_all(self):
