@@ -9,7 +9,6 @@ from cv_bridge import CvBridge
 import cv2
 import threading
 import time
-import random
 
 from ultralytics import YOLO
 
@@ -29,8 +28,10 @@ class ScanFindNode(Node):
         self.running = True
         self.distance = 100
 
-        # ===== SCAN TIMER =====
+        # ===== CONTROL =====
         self.last_scan_time = time.time()
+        self.last_escape_time = time.time()
+        self.turn_left_next = True
 
         # ===== YOLO =====
         self.model = YOLO("yolov8n.pt")
@@ -63,7 +64,7 @@ class ScanFindNode(Node):
         self.distance = msg.data / 10.0
 
     # =========================
-    # SERVO CONTROL
+    # SERVO
     # =========================
     def move_servo(self, servo_id, position):
         msg = SetPWMServoState()
@@ -87,10 +88,9 @@ class ScanFindNode(Node):
 
     def move_forward(self, duration=2.0):
 
-        # kick start
-        boost_msg = self.create_twist(0.5, 0.0)
+        boost = self.create_twist(0.5, 0.0)
         for _ in range(5):
-            self.cmd_vel_pub.publish(boost_msg)
+            self.cmd_vel_pub.publish(boost)
             time.sleep(0.05)
 
         msg = self.create_twist(0.4, 0.0)
@@ -103,7 +103,7 @@ class ScanFindNode(Node):
             self.cmd_vel_pub.publish(msg)
             time.sleep(0.05)
 
-    def rotate_left(self, duration=1.2):
+    def rotate_left(self, duration=1.5):
         msg = self.create_twist(0.08, 1.6)
         end_time = time.time() + duration
 
@@ -111,7 +111,7 @@ class ScanFindNode(Node):
             self.cmd_vel_pub.publish(msg)
             time.sleep(0.05)
 
-    def rotate_right(self, duration=1.2):
+    def rotate_right(self, duration=1.5):
         msg = self.create_twist(0.08, -1.6)
         end_time = time.time() + duration
 
@@ -134,16 +134,16 @@ class ScanFindNode(Node):
 
         self.stop_motion()
 
-        # RIGHT (servo 2 = pan)
-        self.move_servo(2, 1800)
-        time.sleep(1.2)
+        # RIGHT (wide + slow)
+        self.move_servo(2, 1850)
+        time.sleep(1.5)
 
         if self.detected:
             return
 
         # LEFT
-        self.move_servo(2, 1200)
-        time.sleep(1.2)
+        self.move_servo(2, 1150)
+        time.sleep(1.5)
 
         if self.detected:
             return
@@ -166,28 +166,38 @@ class ScanFindNode(Node):
 
             now = time.time()
 
-            # periodic scan
+            # ===== FORCED ESCAPE =====
+            if now - self.last_escape_time > 12.0:
+                self.get_logger().info("ESCAPE MODE")
+                self.stop_motion()
+                self.rotate_right(duration=2.5)
+                self.last_escape_time = now
+                continue
+
+            # ===== CAMERA SCAN =====
             if now - self.last_scan_time > 5.0:
                 self.perform_camera_scan()
                 self.last_scan_time = now
                 continue
 
-            # obstacle
+            # ===== OBSTACLE =====
             if self.distance < 45:
                 self.avoid_obstacle()
                 continue
 
-            # move
+            # ===== MOVE =====
             self.move_forward(duration=2.0)
 
             if self.detected:
                 return
 
-            # random rotation
-            if random.random() < 0.5:
-                self.rotate_left(duration=1.2)
+            # ===== ALTERNATING ROTATION =====
+            if self.turn_left_next:
+                self.rotate_left(duration=1.5)
             else:
-                self.rotate_right(duration=1.2)
+                self.rotate_right(duration=1.5)
+
+            self.turn_left_next = not self.turn_left_next
 
     # =========================
     # DETECTION
@@ -220,7 +230,7 @@ class ScanFindNode(Node):
                         self.detected = True
                         self.on_found()
 
-            # ===== CAMERA OBSTACLE =====
+            # CAMERA OBSTACLE
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             blur = cv2.GaussianBlur(gray, (5,5), 0)
             edges = cv2.Canny(blur, 50, 150)
