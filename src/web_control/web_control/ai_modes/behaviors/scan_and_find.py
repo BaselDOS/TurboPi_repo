@@ -81,8 +81,27 @@ class ScanFindNode(Node):
         msg.angular.z = angular
         return msg
 
-    def rotate_left(self, duration=0.8):
-        msg = self.create_twist(0.0, 1.9)
+    def move_forward(self, duration=2.0):
+
+        # kick start
+        boost_msg = self.create_twist(0.5, 0.0)
+        for _ in range(5):
+            self.cmd_vel_pub.publish(boost_msg)
+            time.sleep(0.05)
+
+        # normal movement
+        msg = self.create_twist(0.35, 0.0)
+        end_time = time.time() + duration
+
+        while time.time() < end_time and self.running and not self.detected:
+            if self.distance < 45:
+                self.stop_motion()
+                return
+            self.cmd_vel_pub.publish(msg)
+            time.sleep(0.05) 
+
+    def rotate_left(self, duration=1.2):
+        msg = self.create_twist(0.0, 1.6)
         end_time = time.time() + duration
 
         while time.time() < end_time and self.running and not self.detected:
@@ -96,11 +115,11 @@ class ScanFindNode(Node):
             time.sleep(0.05)
 
     # =========================
-    # SCANNING
+    # SCANNING LOGIC (FIXED)
     # =========================
     def scan_loop(self):
 
-        # fix camera straight
+        # center camera
         self.move_servo(1, 1500)
         self.move_servo(2, 1500)
 
@@ -108,20 +127,19 @@ class ScanFindNode(Node):
 
         while self.running and not self.detected:
 
-            if self.distance < 30:
+            # ===== MOVE FORWARD =====
+            self.move_forward(duration=2.0)
+            
+            if self.detected:
+                return
+
+            # ===== OBSTACLE CHECK =====
+            if self.distance < 45:
                 self.avoid_obstacle()
                 continue
 
-            # rotate (scan)
-            self.rotate_left(duration=0.8)
-
-            # stop for stable vision
-            self.stop_motion()
-
-            time.sleep(0.5)
-
-            if self.detected:
-                return
+            # ===== SCAN ROTATION =====
+            self.rotate_left(duration=1.2)
 
     # =========================
     # YOLO DETECTION
@@ -136,6 +154,7 @@ class ScanFindNode(Node):
 
             frame = self.current_image.copy()
 
+            # ===== YOLO DETECTION =====
             results = self.model(frame, verbose=False)
 
             for r in results:
@@ -154,29 +173,54 @@ class ScanFindNode(Node):
                         self.detected = True
                         self.on_found()
 
-            # publish debug frame
+            # ===== CAMERA OBSTACLE DETECTION (NEW) =====
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            blur = cv2.GaussianBlur(gray, (5,5), 0)
+            edges = cv2.Canny(blur, 50, 150)
+
+            h, w = edges.shape
+
+            # focus only on center area
+            center_region = edges[:, w//3:2*w//3]
+
+            edge_density = cv2.countNonZero(center_region)
+
+            # threshold tuning (VERY IMPORTANT)
+            if edge_density > 6000 and not self.detected:
+                self.get_logger().info("Camera obstacle detected")
+                self.avoid_obstacle()
+
+            # ===== DEBUG STREAM =====
             try:
                 msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
                 self.debug_pub.publish(msg)
             except:
                 pass
 
-            time.sleep(0.2)
-
+            time.sleep(0.3)
     # =========================
-    # OBSTACLE
+    # OBSTACLE AVOIDANCE (FIXED)
     # =========================
     def avoid_obstacle(self):
 
-        msg = self.create_twist(0.0, 1.9)
-        end_time = time.time() + 0.6
+        self.get_logger().info("Obstacle detected")
 
-        while time.time() < end_time and self.running and not self.detected:
-            self.cmd_vel_pub.publish(msg)
+        # STOP HARD
+        self.stop_motion()
+
+        # STRONG BACK
+        back_msg = self.create_twist(-0.3, 0.0)
+        for _ in range(12):
+            self.cmd_vel_pub.publish(back_msg)
+            time.sleep(0.05)
+
+        # STRONG ROTATE
+        rotate_msg = self.create_twist(0.0, 1.5)
+        for _ in range(15):
+            self.cmd_vel_pub.publish(rotate_msg)
             time.sleep(0.05)
 
         self.stop_motion()
-
     # =========================
     # FOUND ACTION
     # =========================
