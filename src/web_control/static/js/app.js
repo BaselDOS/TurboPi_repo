@@ -105,6 +105,18 @@ else if (selected === "ai") {
         img.src = "/stream";
     }
 }
+
+else if (selected === "scan_and_find") {
+
+    joystickPanel.classList.add("hidden");
+    cameraPanel.classList.remove("hidden");
+
+    const img = document.getElementById("cameraFeed");
+    if (img && !img.src.includes("/stream")) {
+        img.src = "/stream";
+    }
+}
+
   });
 
   const stopBtn = document.getElementById('stopBtn');

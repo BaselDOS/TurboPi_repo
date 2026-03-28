@@ -148,6 +148,14 @@ def api_run_node(server):
             ]
             server.stream_source = "raw"
 
+        elif node == "scan_and_find":
+            cmd = [
+                "python3",
+                "-m",
+                "web_control.ai_modes.behaviors.scan_and_find"
+            ]
+            server.stream_source = "debug"
+
         else:
             server.current_mode = "idle"
             server.robot.manual_control = True
