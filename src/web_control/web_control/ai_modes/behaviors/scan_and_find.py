@@ -39,7 +39,6 @@ class ScanFindNode(Node):
         self.create_subscription(Int32, 'sonar_controller/get_distance', self.distance_callback, 10)
 
         # ===== PUBLISHERS =====
-        self.cmd_pub = self.create_publisher(Twist, 'cmd_vel', 1)
         self.buzzer_pub = self.create_publisher(BuzzerState, '/ros_robot_controller/set_buzzer', 10)
         self.servo_pub = self.create_publisher(SetPWMServoState, 'ros_robot_controller/pwm_servo/set_state', 10)
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -97,11 +96,11 @@ class ScanFindNode(Node):
             # rotate slowly (scan environment)
             self.rotate_left()
 
-            time.sleep(0.3)
+            time.sleep(0.6)
 
             self.stop_motion()
 
-            time.sleep(0.3)  # allow camera to stabilize
+            time.sleep(0.4)  # allow camera to stabilize
 
             # detection happens continuously in your callback
             if self.detected:
@@ -153,7 +152,7 @@ class ScanFindNode(Node):
     def avoid_obstacle(self):
         twist = Twist()
         twist.angular.z = 1.0
-        self.cmd_pub.publish(twist)
+        self.cmd_vel_pub.publish(twist)
         time.sleep(0.5)
 
     # =========================
@@ -164,7 +163,7 @@ class ScanFindNode(Node):
         self.beep_5_times()
 
     def stop_robot(self):
-        self.cmd_pub.publish(Twist())
+        self.cmd_vel_pub.publish(Twist())
 
     def beep_5_times(self):
         for _ in range(5):
@@ -183,7 +182,7 @@ class ScanFindNode(Node):
         return msg
 
     def rotate_left(self):
-        msg = self.create_twist(0.0, 0.3)
+        msg = self.create_twist(0.0, 0.8)
         self.cmd_vel_pub.publish(msg)
 
     def stop_motion(self):
