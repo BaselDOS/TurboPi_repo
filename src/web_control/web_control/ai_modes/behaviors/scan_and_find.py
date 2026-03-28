@@ -9,6 +9,7 @@ from cv_bridge import CvBridge
 import cv2
 import threading
 import time
+import random
 
 from ultralytics import YOLO
 
@@ -27,6 +28,9 @@ class ScanFindNode(Node):
         self.detected = False
         self.running = True
         self.distance = 100
+
+        # ===== SCAN TIMER =====
+        self.last_scan_time = time.time()
 
         # ===== YOLO =====
         self.model = YOLO("yolov8n.pt")
@@ -73,7 +77,7 @@ class ScanFindNode(Node):
         self.servo_pub.publish(msg)
 
     # =========================
-    # MOTION HELPERS
+    # MOTION
     # =========================
     def create_twist(self, linear=0.0, angular=0.0):
         msg = Twist()
@@ -89,8 +93,7 @@ class ScanFindNode(Node):
             self.cmd_vel_pub.publish(boost_msg)
             time.sleep(0.05)
 
-        # normal movement
-        msg = self.create_twist(0.35, 0.0)
+        msg = self.create_twist(0.4, 0.0)
         end_time = time.time() + duration
 
         while time.time() < end_time and self.running and not self.detected:
@@ -98,10 +101,18 @@ class ScanFindNode(Node):
                 self.stop_motion()
                 return
             self.cmd_vel_pub.publish(msg)
-            time.sleep(0.05) 
+            time.sleep(0.05)
 
     def rotate_left(self, duration=1.2):
-        msg = self.create_twist(0.0, 1.6)
+        msg = self.create_twist(0.08, 1.6)
+        end_time = time.time() + duration
+
+        while time.time() < end_time and self.running and not self.detected:
+            self.cmd_vel_pub.publish(msg)
+            time.sleep(0.05)
+
+    def rotate_right(self, duration=1.2):
+        msg = self.create_twist(0.08, -1.6)
         end_time = time.time() + duration
 
         while time.time() < end_time and self.running and not self.detected:
@@ -115,11 +126,37 @@ class ScanFindNode(Node):
             time.sleep(0.05)
 
     # =========================
-    # SCANNING LOGIC (FIXED)
+    # CAMERA SCAN
+    # =========================
+    def perform_camera_scan(self):
+
+        self.get_logger().info("Camera scan")
+
+        self.stop_motion()
+
+        # RIGHT (servo 2 = pan)
+        self.move_servo(2, 1800)
+        time.sleep(1.2)
+
+        if self.detected:
+            return
+
+        # LEFT
+        self.move_servo(2, 1200)
+        time.sleep(1.2)
+
+        if self.detected:
+            return
+
+        # CENTER
+        self.move_servo(2, 1500)
+        time.sleep(0.5)
+
+    # =========================
+    # MAIN LOOP
     # =========================
     def scan_loop(self):
 
-        # center camera
         self.move_servo(1, 1500)
         self.move_servo(2, 1500)
 
@@ -127,22 +164,33 @@ class ScanFindNode(Node):
 
         while self.running and not self.detected:
 
-            # ===== MOVE FORWARD =====
-            self.move_forward(duration=2.0)
-            
-            if self.detected:
-                return
+            now = time.time()
 
-            # ===== OBSTACLE CHECK =====
+            # periodic scan
+            if now - self.last_scan_time > 5.0:
+                self.perform_camera_scan()
+                self.last_scan_time = now
+                continue
+
+            # obstacle
             if self.distance < 45:
                 self.avoid_obstacle()
                 continue
 
-            # ===== SCAN ROTATION =====
-            self.rotate_left(duration=1.2)
+            # move
+            self.move_forward(duration=2.0)
+
+            if self.detected:
+                return
+
+            # random rotation
+            if random.random() < 0.5:
+                self.rotate_left(duration=1.2)
+            else:
+                self.rotate_right(duration=1.2)
 
     # =========================
-    # YOLO DETECTION
+    # DETECTION
     # =========================
     def detection_loop(self):
 
@@ -154,7 +202,6 @@ class ScanFindNode(Node):
 
             frame = self.current_image.copy()
 
-            # ===== YOLO DETECTION =====
             results = self.model(frame, verbose=False)
 
             for r in results:
@@ -173,24 +220,18 @@ class ScanFindNode(Node):
                         self.detected = True
                         self.on_found()
 
-            # ===== CAMERA OBSTACLE DETECTION (NEW) =====
+            # ===== CAMERA OBSTACLE =====
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             blur = cv2.GaussianBlur(gray, (5,5), 0)
             edges = cv2.Canny(blur, 50, 150)
 
             h, w = edges.shape
+            center = edges[:, w//3:2*w//3]
 
-            # focus only on center area
-            center_region = edges[:, w//3:2*w//3]
-
-            edge_density = cv2.countNonZero(center_region)
-
-            # threshold tuning (VERY IMPORTANT)
-            if edge_density > 6000 and not self.detected:
-                self.get_logger().info("Camera obstacle detected")
+            if cv2.countNonZero(center) > 6000 and not self.detected:
+                self.get_logger().info("Camera obstacle")
                 self.avoid_obstacle()
 
-            # ===== DEBUG STREAM =====
             try:
                 msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
                 self.debug_pub.publish(msg)
@@ -198,31 +239,30 @@ class ScanFindNode(Node):
                 pass
 
             time.sleep(0.3)
+
     # =========================
-    # OBSTACLE AVOIDANCE (FIXED)
+    # AVOIDANCE
     # =========================
     def avoid_obstacle(self):
 
         self.get_logger().info("Obstacle detected")
 
-        # STOP HARD
         self.stop_motion()
 
-        # STRONG BACK
-        back_msg = self.create_twist(-0.3, 0.0)
+        back = self.create_twist(-0.3, 0.0)
         for _ in range(12):
-            self.cmd_vel_pub.publish(back_msg)
+            self.cmd_vel_pub.publish(back)
             time.sleep(0.05)
 
-        # STRONG ROTATE
-        rotate_msg = self.create_twist(0.0, 1.5)
+        rot = self.create_twist(0.0, 1.5)
         for _ in range(15):
-            self.cmd_vel_pub.publish(rotate_msg)
+            self.cmd_vel_pub.publish(rot)
             time.sleep(0.05)
 
         self.stop_motion()
+
     # =========================
-    # FOUND ACTION
+    # FOUND
     # =========================
     def on_found(self):
         self.stop_motion()
