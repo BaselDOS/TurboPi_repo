@@ -10,7 +10,7 @@ import cv2
 import threading
 import time
 
-from ultralytics import YOLO
+from web_control.ai_modes.behaviors.vision.detector import Detector
 
 
 class CleanYoloNode(Node):
@@ -20,27 +20,16 @@ class CleanYoloNode(Node):
 
         self.bridge = CvBridge()
 
-        # =========================
-        # STATE
-        # =========================
         self.current_image = None
         self.running = True
 
         self.frame_count = 0
-        self.process_every_n = 6   # keep your good lag
+        self.process_every_n = 6
 
         self.last_boxes = []
 
-        # =========================
-        # YOLO
-        # =========================
-        self.get_logger().info("Loading YOLO...")
-        self.model = YOLO("yolov8n.pt")
-        self.get_logger().info("YOLO loaded")
+        self.detector = Detector()
 
-        # =========================
-        # ROS
-        # =========================
         self.create_subscription(
             Image,
             '/image_raw',
@@ -54,19 +43,14 @@ class CleanYoloNode(Node):
             1
         )
 
-        # =========================
-        # THREAD
-        # =========================
         threading.Thread(target=self.loop, daemon=True).start()
 
-    # =========================
     def image_callback(self, msg):
         try:
             self.current_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
         except:
             pass
 
-    # =========================
     def loop(self):
 
         while self.running:
@@ -79,54 +63,12 @@ class CleanYoloNode(Node):
 
             self.frame_count += 1
 
-            # =====================
-            # YOLO (IMPROVED ONLY)
-            # =====================
             if self.frame_count % self.process_every_n == 0:
                 try:
-                    h, w = frame.shape[:2]
-
-                    # 🔥 CENTER CROP
-                    y1_crop = int(h * 0.2)
-                    y2_crop = int(h * 0.9)
-                    x1_crop = int(w * 0.2)
-                    x2_crop = int(w * 0.8)
-
-                    crop = frame[y1_crop:y2_crop, x1_crop:x2_crop]
-
-                    results = self.model(
-                        crop,
-                        imgsz=352,   # 🔥 better detection
-                        conf=0.15,   # 🔥 more sensitive
-                        iou=0.4,
-                        verbose=False
-                    )
-
-                    boxes = []
-
-                    for r in results:
-                        for b in r.boxes:
-                            x1, y1, x2, y2 = map(int, b.xyxy[0])
-                            conf = float(b.conf[0])
-                            cls = int(b.cls[0])
-                            label = self.model.names[cls]
-
-                            # 🔥 map back to original frame
-                            x1 += x1_crop
-                            x2 += x1_crop
-                            y1 += y1_crop
-                            y2 += y1_crop
-
-                            boxes.append((x1, y1, x2, y2, label, conf))
-
-                    self.last_boxes = boxes
-
+                    self.last_boxes = self.detector.detect(frame)
                 except Exception as e:
                     self.get_logger().warn(f"YOLO error: {e}")
 
-            # =====================
-            # DRAW
-            # =====================
             for (x1, y1, x2, y2, label, conf) in self.last_boxes:
 
                 color = (0,255,0)
@@ -145,9 +87,6 @@ class CleanYoloNode(Node):
                     2
                 )
 
-            # =====================
-            # DEBUG
-            # =====================
             cv2.putText(frame, "STREAM OK", (20,40),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
 
@@ -155,22 +94,15 @@ class CleanYoloNode(Node):
                         (20,80),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,255), 2)
 
-            # =====================
-            # PUBLISH
-            # =====================
             try:
                 msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
                 self.debug_pub.publish(msg)
             except:
                 pass
 
-            # =====================
-            # FPS CONTROL
-            # =====================
             time.sleep(0.03)
 
 
-# =========================
 def main():
     rclpy.init()
     node = CleanYoloNode()

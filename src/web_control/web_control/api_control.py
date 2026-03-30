@@ -152,7 +152,7 @@ def api_run_node(server):
             cmd = [
                 "python3",
                 "-m",
-                "web_control.ai_modes.behaviors.scan_and_find"
+                "web_control.ai_modes.behaviors.node.scan_and_find"
             ]
             server.stream_source = "debug"
 
