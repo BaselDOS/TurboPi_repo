@@ -4,6 +4,8 @@ import rclpy
 from rclpy.node import Node
 
 from sensor_msgs.msg import Image
+from std_msgs.msg import Int32
+from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge
 
 import cv2
@@ -11,112 +13,101 @@ import threading
 import time
 
 from web_control.ai_modes.behaviors.vision.detector import Detector
+from web_control.ai_modes.behaviors.vision.free_space import FreeSpace
+from web_control.ai_modes.behaviors.vision.stuck_detector import StuckDetector
+
+from web_control.ai_modes.behaviors.control.motion import Motion
+from web_control.ai_modes.behaviors.control.head import Head
+from web_control.ai_modes.behaviors.control.alerts import Alerts
+
+from ros_robot_controller_msgs.msg import SetPWMServoState, BuzzerState
 
 
-class CleanYoloNode(Node):
+class ScanAndFind(Node):
 
     def __init__(self):
-        super().__init__('clean_yolo_node')
+        super().__init__('scan_and_find')
 
         self.bridge = CvBridge()
 
         self.current_image = None
-        self.running = True
-
-        self.frame_count = 0
-        self.process_every_n = 6
-
-        self.last_boxes = []
+        self.distance = 100
 
         self.detector = Detector()
+        self.space = FreeSpace()
+        self.stuck = StuckDetector()
 
-        self.create_subscription(
-            Image,
-            '/image_raw',
-            self.image_callback,
-            1
-        )
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.servo_pub = self.create_publisher(SetPWMServoState, 'ros_robot_controller/pwm_servo/set_state', 10)
+        self.buzzer_pub = self.create_publisher(BuzzerState, '/ros_robot_controller/set_buzzer', 10)
 
-        self.debug_pub = self.create_publisher(
-            Image,
-            '/avoidance/debug_image',
-            1
-        )
+        self.motion = Motion(self.cmd_pub)
+        self.head = Head(self.servo_pub)
+        self.alerts = Alerts(self.buzzer_pub)
+
+        self.create_subscription(Image, '/image_raw', self.img_cb, 1)
+        self.create_subscription(Int32, 'sonar_controller/get_distance', self.dist_cb, 10)
 
         threading.Thread(target=self.loop, daemon=True).start()
 
-    def image_callback(self, msg):
-        try:
-            self.current_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-        except:
-            pass
+    def img_cb(self, msg):
+        self.current_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+
+    def dist_cb(self, msg):
+        self.distance = msg.data / 10.0
 
     def loop(self):
 
-        while self.running:
+        while rclpy.ok():
 
             if self.current_image is None:
-                time.sleep(0.02)
+                time.sleep(0.05)
                 continue
 
             frame = self.current_image
 
-            self.frame_count += 1
+            boxes, found = self.detector.detect(frame)
 
-            if self.frame_count % self.process_every_n == 0:
-                try:
-                    self.last_boxes = self.detector.detect(frame)
-                except Exception as e:
-                    self.get_logger().warn(f"YOLO error: {e}")
+            if found:
+                self.motion.stop()
+                self.alerts.beep5()
+                return
 
-            for (x1, y1, x2, y2, label, conf) in self.last_boxes:
+            if self.distance < 40:
+                self.motion.stop()
+                self.motion.rotate_right(1.5)
+                continue
 
-                color = (0,255,0)
+            if self.stuck.is_stuck(frame):
+                self.motion.stop()
+                self.motion.rotate_left(2.0)
+                continue
 
-                if label == "sports ball":
-                    color = (0,0,255)
+            # ===== MOVE =====
+            self.motion.forward(1.5)
+            self.motion.stop()
 
-                cv2.rectangle(frame, (x1,y1), (x2,y2), color, 2)
-                cv2.putText(
-                    frame,
-                    f"{label} {conf:.2f}",
-                    (x1, y1-10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    color,
-                    2
-                )
+            # ===== SCAN =====
+            self.head.move(2, 1800, 1.0)
+            right_score = self.space.analyze(frame)["right"]
 
-            cv2.putText(frame, "STREAM OK", (20,40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+            self.head.move(2, 1200, 1.0)
+            left_score = self.space.analyze(frame)["left"]
 
-            cv2.putText(frame, f"Boxes: {len(self.last_boxes)}",
-                        (20,80),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,255), 2)
+            self.head.move(2, 1500, 0.5)
 
-            try:
-                msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
-                self.debug_pub.publish(msg)
-            except:
-                pass
+            # ===== DECIDE =====
+            if right_score < left_score:
+                self.motion.rotate_right(1.0)
+            else:
+                self.motion.rotate_left(1.0)
 
-            time.sleep(0.03)
+    # (optional: reuse your debug stream code if needed)
 
 
 def main():
     rclpy.init()
-    node = CleanYoloNode()
-
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-
-    finally:
-        node.running = False
-        node.destroy_node()
-        rclpy.shutdown()
-
-
-if __name__ == '__main__':
-    main()
+    node = ScanAndFind()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()

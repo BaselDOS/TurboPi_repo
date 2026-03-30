@@ -4,42 +4,39 @@ class Detector:
 
     def __init__(self):
         self.model = YOLO("yolo26n.pt")
+        self.target = "sports ball"
 
     def detect(self, frame):
 
         h, w = frame.shape[:2]
 
-        # center crop
-        y1_crop = int(h * 0.2)
-        y2_crop = int(h * 0.9)
-        x1_crop = int(w * 0.2)
-        x2_crop = int(w * 0.8)
-
-        crop = frame[y1_crop:y2_crop, x1_crop:x2_crop]
+        crop = frame[int(h*0.2):int(h*0.9), int(w*0.2):int(w*0.8)]
 
         results = self.model(
             crop,
-            imgsz=352,      # ✅ optimized
+            imgsz=352,
             conf=0.15,
             iou=0.4,
             verbose=False
         )
 
         boxes = []
+        found = False
 
         for r in results:
             for b in r.boxes:
                 x1, y1, x2, y2 = map(int, b.xyxy[0])
-                conf = float(b.conf[0])
                 cls = int(b.cls[0])
                 label = self.model.names[cls]
 
-                # remap to original frame
-                x1 += x1_crop
-                x2 += x1_crop
-                y1 += y1_crop
-                y2 += y1_crop
+                x1 += int(w*0.2)
+                x2 += int(w*0.2)
+                y1 += int(h*0.2)
+                y2 += int(h*0.2)
 
-                boxes.append((x1, y1, x2, y2, label, conf))
+                boxes.append((x1,y1,x2,y2,label))
 
-        return boxes
+                if label == self.target:
+                    found = True
+
+        return boxes, found
