@@ -13,9 +13,6 @@ import threading
 import time
 
 from web_control.ai_modes.behaviors.vision.detector import Detector
-from web_control.ai_modes.behaviors.vision.free_space import FreeSpace
-from web_control.ai_modes.behaviors.vision.stuck_detector import StuckDetector
-
 from web_control.ai_modes.behaviors.control.motion import Motion
 from web_control.ai_modes.behaviors.control.head import Head
 from web_control.ai_modes.behaviors.control.alerts import Alerts
@@ -30,79 +27,129 @@ class ScanAndFind(Node):
 
         self.bridge = CvBridge()
 
+        # ===== STATE =====
         self.current_image = None
         self.distance = 100
 
+        self.frame_count = 0
+        self.process_every_n = 5
+
+        self.target_detected = False
+        self.last_boxes = []
+
+        self.lock = threading.Lock()
+
+        # ===== MODULES =====
         self.detector = Detector()
-        self.space = FreeSpace()
-        self.stuck = StuckDetector()
 
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.servo_pub = self.create_publisher(SetPWMServoState, 'ros_robot_controller/pwm_servo/set_state', 10)
         self.buzzer_pub = self.create_publisher(BuzzerState, '/ros_robot_controller/set_buzzer', 10)
 
+        self.debug_pub = self.create_publisher(Image, '/avoidance/debug_image', 1)
+
         self.motion = Motion(self.cmd_pub)
         self.head = Head(self.servo_pub)
         self.alerts = Alerts(self.buzzer_pub)
 
+        # ===== SUBS =====
         self.create_subscription(Image, '/image_raw', self.img_cb, 1)
         self.create_subscription(Int32, 'sonar_controller/get_distance', self.dist_cb, 10)
 
-        threading.Thread(target=self.loop, daemon=True).start()
+        # ===== THREADS =====
+        threading.Thread(target=self.vision_loop, daemon=True).start()
+        threading.Thread(target=self.control_loop, daemon=True).start()
 
     def img_cb(self, msg):
-        self.current_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+        try:
+            self.current_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+        except:
+            pass
 
     def dist_cb(self, msg):
         self.distance = msg.data / 10.0
 
-    def loop(self):
+    # =========================
+    # VISION THREAD (FAST)
+    # =========================
+    def vision_loop(self):
 
         while rclpy.ok():
 
             if self.current_image is None:
-                time.sleep(0.05)
+                time.sleep(0.02)
                 continue
 
-            frame = self.current_image
+            frame = self.current_image.copy()
 
-            boxes, found = self.detector.detect(frame)
+            self.frame_count += 1
 
-            if found:
+            if self.frame_count % self.process_every_n == 0:
+
+                boxes, found = self.detector.detect(frame)
+
+                with self.lock:
+                    self.last_boxes = boxes
+                    if found:
+                        self.target_detected = True
+
+            # ===== DRAW =====
+            for (x1, y1, x2, y2, label) in self.last_boxes:
+
+                color = (0, 255, 0)
+                if label == "sports ball":
+                    color = (0, 0, 255)
+
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(
+                    frame,
+                    label,
+                    (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    color,
+                    2
+                )
+
+            # ===== DEBUG STREAM =====
+            try:
+                msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+                self.debug_pub.publish(msg)
+            except:
+                pass
+
+            time.sleep(0.03)
+
+    # =========================
+    # CONTROL THREAD (SLOW)
+    # =========================
+    def control_loop(self):
+
+        while rclpy.ok():
+
+            with self.lock:
+                detected = self.target_detected
+
+            # ===== TARGET FOUND =====
+            if detected:
                 self.motion.stop()
                 self.alerts.beep5()
-                return
 
+                with self.lock:
+                    self.target_detected = False
+
+                time.sleep(2)
+                continue
+
+            # ===== OBSTACLE =====
             if self.distance < 40:
-                self.motion.stop()
-                self.motion.rotate_right(1.5)
+                self.motion.rotate_right()
+                time.sleep(0.5)
                 continue
 
-            if self.stuck.is_stuck(frame):
-                self.motion.stop()
-                self.motion.rotate_left(2.0)
-                continue
-
-            # ===== MOVE =====
-            self.motion.forward(1.5)
-            self.motion.stop()
-
-            # ===== SCAN =====
-            self.head.move(2, 1800, 1.0)
-            right_score = self.space.analyze(frame)["right"]
-
-            self.head.move(2, 1200, 1.0)
-            left_score = self.space.analyze(frame)["left"]
-
-            self.head.move(2, 1500, 0.5)
-
-            # ===== DECIDE =====
-            if right_score < left_score:
-                self.motion.rotate_right(1.0)
-            else:
-                self.motion.rotate_left(1.0)
-
-    # (optional: reuse your debug stream code if needed)
+            # ===== BASIC MOVE =====
+            self.motion.forward()
+            time.sleep(0.2)
 
 
 def main():
@@ -111,3 +158,7 @@ def main():
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
