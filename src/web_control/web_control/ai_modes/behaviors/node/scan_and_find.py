@@ -130,7 +130,7 @@ class ScanAndFind(Node):
             with self.lock:
                 detected = self.target_detected
 
-            # ===== TARGET FOUND =====
+            # ===== TARGET =====
             if detected:
                 self.motion.stop()
                 self.alerts.beep5()
@@ -143,13 +143,61 @@ class ScanAndFind(Node):
 
             # ===== OBSTACLE =====
             if self.distance < 40:
+                self.motion.stop()
                 self.motion.rotate_right()
-                time.sleep(0.5)
+                time.sleep(0.8)
+                self.motion.stop()
                 continue
 
-            # ===== BASIC MOVE =====
+            # =========================
+            # STEP 1: MOVE FORWARD (REAL MOVE)
+            # =========================
             self.motion.forward()
-            time.sleep(0.2)
+            time.sleep(1.0)   # ← WAS 0.3 → TOO SHORT
+            self.motion.stop()
+
+            # =========================
+            # STEP 2: SCAN RIGHT (SLOW + STABLE)
+            # =========================
+            self.head.move(2, 1800, 0.5)
+
+            time.sleep(0.4)  # ← GIVE YOLO TIME
+
+            with self.lock:
+                right_boxes = len(self.last_boxes)
+
+            # =========================
+            # STEP 3: SCAN LEFT
+            # =========================
+            self.head.move(2, 1200, 0.5)
+
+            time.sleep(0.4)
+
+            with self.lock:
+                left_boxes = len(self.last_boxes)
+
+            # =========================
+            # STEP 4: CENTER
+            # =========================
+            self.head.move(2, 1500, 0.3)
+
+            # =========================
+            # STEP 5: DECISION (SMOOTH)
+            # =========================
+            if right_boxes > left_boxes:
+                self.motion.rotate_right()
+                time.sleep(0.6)
+
+            elif left_boxes > right_boxes:
+                self.motion.rotate_left()
+                time.sleep(0.6)
+
+            else:
+                # nothing interesting → small search
+                self.motion.rotate_left()
+                time.sleep(0.4)
+
+            self.motion.stop()
 
 
 def main():
