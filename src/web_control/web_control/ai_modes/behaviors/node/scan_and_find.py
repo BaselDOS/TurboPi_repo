@@ -2,6 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
+import random
 
 from sensor_msgs.msg import Image
 from std_msgs.msg import Int32
@@ -125,14 +126,20 @@ class ScanAndFind(Node):
     # =========================
     def control_loop(self):
 
+        self.last_explore_time = time.time()
+        self.explore_interval = 12.0   # between 10–15 sec
+
         while rclpy.ok():
+
+            now = time.time()
 
             with self.lock:
                 detected = self.target_detected
 
-            # ===== TARGET =====
+            # ===== TARGET FOUND =====
             if detected:
                 self.motion.stop()
+                time.sleep(0.3)
                 self.alerts.beep5()
 
                 with self.lock:
@@ -141,63 +148,90 @@ class ScanAndFind(Node):
                 time.sleep(2)
                 continue
 
-            # ===== OBSTACLE =====
-            if self.distance < 40:
+            # =========================
+            # REAL-TIME OBSTACLE AVOIDANCE
+            # =========================
+            if self.distance < 35:
                 self.motion.stop()
-                self.motion.rotate_right()
-                time.sleep(0.8)
+
+                # step back
+                self.motion._send(-0.2, 0.0)
+                time.sleep(0.4)
                 self.motion.stop()
+
+                # turn random direction (NO bias)
+                if random.random() > 0.5:
+                    self.motion.rotate_left()
+                else:
+                    self.motion.rotate_right()
+
+                time.sleep(0.5)
+                self.motion.stop()
+
                 continue
 
             # =========================
-            # STEP 1: MOVE FORWARD (REAL MOVE)
+            # PERIODIC EXPLORATION (10–15 sec)
             # =========================
-            self.motion.forward()
-            time.sleep(1.0)   # ← WAS 0.3 → TOO SHORT
-            self.motion.stop()
+            if now - self.last_explore_time > self.explore_interval:
 
-            # =========================
-            # STEP 2: SCAN RIGHT (SLOW + STABLE)
-            # =========================
-            self.head.move(2, 1800, 0.5)
-
-            time.sleep(0.4)  # ← GIVE YOLO TIME
-
-            with self.lock:
-                right_boxes = len(self.last_boxes)
-
-            # =========================
-            # STEP 3: SCAN LEFT
-            # =========================
-            self.head.move(2, 1200, 0.5)
-
-            time.sleep(0.4)
-
-            with self.lock:
-                left_boxes = len(self.last_boxes)
-
-            # =========================
-            # STEP 4: CENTER
-            # =========================
-            self.head.move(2, 1500, 0.3)
-
-            # =========================
-            # STEP 5: DECISION (SMOOTH)
-            # =========================
-            if right_boxes > left_boxes:
-                self.motion.rotate_right()
-                time.sleep(0.6)
-
-            elif left_boxes > right_boxes:
-                self.motion.rotate_left()
-                time.sleep(0.6)
-
-            else:
-                # nothing interesting → small search
-                self.motion.rotate_left()
+                self.motion.stop()
                 time.sleep(0.4)
 
-            self.motion.stop()
+                # ===== SMALL RANDOM ROTATION (~45°) =====
+                if random.random() > 0.5:
+                    self.motion.rotate_left()
+                else:
+                    self.motion.rotate_right()
+
+                time.sleep(0.4)
+                self.motion.stop()
+                time.sleep(0.3)
+
+                right_score = 0
+                left_score = 0
+
+                # ===== SCAN RIGHT (~1 sec) =====
+                self.head.move(2, 1800, 0.8)
+                for _ in range(6):
+                    time.sleep(0.15)
+                    with self.lock:
+                        right_score += len(self.last_boxes)
+
+                # ===== SCAN LEFT (~1 sec) =====
+                self.head.move(2, 1200, 0.8)
+                for _ in range(6):
+                    time.sleep(0.15)
+                    with self.lock:
+                        left_score += len(self.last_boxes)
+
+                # ===== CENTER =====
+                self.head.move(2, 1500, 0.6)
+                time.sleep(0.3)
+
+                # ===== DECISION =====
+                if right_score > left_score + 2:
+                    self.motion.rotate_right()
+                    time.sleep(0.4)
+
+                elif left_score > right_score + 2:
+                    self.motion.rotate_left()
+                    time.sleep(0.4)
+
+                # else → keep direction (no forced turn)
+
+                self.motion.stop()
+
+                # reset timer
+                self.last_explore_time = now
+
+                continue
+
+            # =========================
+            # NORMAL CONTINUOUS DRIVE
+            # =========================
+            self.motion.forward()
+            time.sleep(0.1)
 
 
 def main():
