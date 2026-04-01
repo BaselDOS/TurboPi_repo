@@ -56,8 +56,10 @@ class ScanAndFind(Node):
         self.control = ControlLoop(
             motion=self.motion,
             alerts=self.alerts,
+            head=self.head,
             get_frame=lambda: self.current_image,
             get_distance=lambda: self.distance,
+            get_boxes=lambda: self.last_boxes,
             lock=self.lock
         )
 
