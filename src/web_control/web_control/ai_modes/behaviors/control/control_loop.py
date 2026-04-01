@@ -1,4 +1,5 @@
 import time
+import cv2
 
 from web_control.ai_modes.behaviors.vision.free_space import FreeSpace
 from web_control.ai_modes.behaviors.vision.stuck_detector import StuckDetector
@@ -40,6 +41,18 @@ class ControlLoop:
                 time.sleep(0.05)
                 continue
 
+            # =========================
+            # VISION OBSTACLE CHECK (NEW 🔥)
+            # =========================
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            edges = cv2.Canny(gray, 50, 150)
+
+            h, w = edges.shape
+            center = edges[:, w//3:2*w//3]
+
+            center_edges = cv2.countNonZero(center)
+            vision_blocked = center_edges > 12000   # tune later
+
             distance = self.get_distance()
 
             with self.lock:
@@ -67,9 +80,9 @@ class ControlLoop:
                 self.state_start = time.time()
 
             # =========================
-            # OBSTACLE
+            # OBSTACLE (UPDATED 🔥)
             # =========================
-            if distance < 35 and self.state != "ESCAPE":
+            if (distance < 35 or vision_blocked) and self.state != "ESCAPE":
                 self.state = "AVOID"
                 self.state_start = time.time()
 
@@ -94,7 +107,7 @@ class ControlLoop:
                 else:
                     self.motion.rotate_right()
 
-                time.sleep(0.4)
+                time.sleep(0.6)
                 self.motion.stop()
 
                 self.state = "SEARCH"
@@ -105,7 +118,7 @@ class ControlLoop:
                 time.sleep(0.2)
 
                 # back
-                self.motion._send(-0.25, 0.0)
+                self.motion._send(-0.5, 0.0)
                 time.sleep(0.5)
                 self.motion.stop()
 
@@ -124,6 +137,7 @@ class ControlLoop:
                 # forward commit
                 self.motion.forward()
                 time.sleep(1.5)
+
                 self.last_escape_time = time.time()
                 self.state = "SEARCH"
 

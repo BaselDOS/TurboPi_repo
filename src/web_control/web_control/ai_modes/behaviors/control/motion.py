@@ -15,11 +15,14 @@ class Motion:
         self._send(0.0, 0.0)
 
     def forward(self):
-        self._send(0.3, 0.0)
+        self._send(0.5, 0.0)
+
+    def backward(self):
+        self._send(-0.5,0.0)
 
     def rotate_left(self):
-        self._send(0.0, 1.2)
+        self._send(0.0, 2.0)
 
     def rotate_right(self):
-        self._send(0.0, -1.2)
+        self._send(0.0, -2.0)
 
