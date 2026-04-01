@@ -1,5 +1,6 @@
 import time
 import cv2
+import random
 
 from web_control.ai_modes.behaviors.vision.free_space import FreeSpace
 from web_control.ai_modes.behaviors.vision.stuck_detector import StuckDetector
@@ -32,6 +33,8 @@ class ControlLoop:
 
         self.last_forward_time = 0
 
+        self.last_turn = None   # 🔥 NEW
+
         # ===== SCAN SYSTEM =====
         self.last_scan_time = 0
         self.scan_interval = 6.0
@@ -52,24 +55,13 @@ class ControlLoop:
                 time.sleep(0.05)
                 continue
 
-            # ===== EDGE DETECTION =====
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            edges = cv2.Canny(gray, 50, 150)
-
-            h, w = edges.shape
-            center = edges[:, w//3:2*w//3]
-
-            center_edges = cv2.countNonZero(center)
-            vision_blocked = center_edges > 22000   # less sensitive
-
             # ===== OBJECT SIZE =====
             boxes = self.get_boxes()
             object_close = False
 
             for (x1, y1, x2, y2, label) in boxes:
                 area = (x2 - x1) * (y2 - y1)
-
-                if area > 45000:   # less sensitive
+                if area > 45000:
                     object_close = True
                     break
 
@@ -94,25 +86,26 @@ class ControlLoop:
             if time.time() - self.last_scan_time > self.scan_interval and self.state == "SEARCH":
                 self.state = "SCAN"
 
+            # ===== STARTUP PROTECTION =====
+            startup = (time.time() - self.start_time) < 2.0
+
+            # ===== HARD ESCAPE (VERY CLOSE) 🔥
+            if not startup and distance < 20:
+                self.state = "ESCAPE"
+
             # ===== STUCK =====
             forwarding = (time.time() - self.last_forward_time) < 0.5
             is_stuck = self.stuck_detector.is_stuck(frame)
 
             if forwarding and is_stuck and (time.time() - self.last_escape_time > self.escape_cooldown):
                 self.state = "ESCAPE"
-                self.state_start = time.time()
-
-            # ===== STARTUP PROTECTION =====
-            startup = (time.time() - self.start_time) < 2.0
 
             # ===== OBSTACLE =====
             if not startup and (
                 distance < 35 or
-                (object_close and self.state == "SEARCH") or
-                (vision_blocked and self.state == "SEARCH")
-            ) and self.state != "ESCAPE":
+                object_close
+            ) and self.state not in ["ESCAPE"]:
                 self.state = "AVOID"
-                self.state_start = time.time()
 
             # ===== STATES =====
 
@@ -125,16 +118,35 @@ class ControlLoop:
             elif self.state == "AVOID":
 
                 self.motion.stop()
-                time.sleep(0.2)
+                time.sleep(0.1)
+
+                # 🔥 IF TOO CLOSE → BACK FIRST
+                if distance < 25:
+                    self.motion.backward()
+                    time.sleep(0.4)
+                    self.motion.stop()
 
                 spaces = self.free_space.analyze(frame)
 
-                if spaces["left"] < spaces["right"]:
-                    self.motion.rotate_left()
-                else:
-                    self.motion.rotate_right()
+                # 🔥 PREVENT LEFT-RIGHT LOOP
+                if abs(spaces["left"] - spaces["right"]) < 1000:
 
-                time.sleep(0.6)
+                    if self.last_turn == "left":
+                        self.motion.rotate_right()
+                        self.last_turn = "right"
+                    else:
+                        self.motion.rotate_left()
+                        self.last_turn = "left"
+
+                else:
+                    if spaces["left"] < spaces["right"]:
+                        self.motion.rotate_left()
+                        self.last_turn = "left"
+                    else:
+                        self.motion.rotate_right()
+                        self.last_turn = "right"
+
+                time.sleep(0.4)
                 self.motion.stop()
 
                 self.state = "SEARCH"
@@ -143,15 +155,12 @@ class ControlLoop:
 
                 self.motion.stop()
 
-                # look right
                 self.head.move(2, 1800, 0.6)
                 time.sleep(0.8)
 
-                # look left
                 self.head.move(2, 1200, 0.6)
                 time.sleep(0.8)
 
-                # center
                 self.head.move(2, 1500, 0.5)
 
                 self.last_scan_time = time.time()
@@ -163,22 +172,24 @@ class ControlLoop:
                 time.sleep(0.2)
 
                 self.motion.backward()
-                time.sleep(0.5)
+                time.sleep(0.6)
                 self.motion.stop()
 
                 spaces = self.free_space.analyze(frame)
 
                 if spaces["left"] < spaces["right"]:
                     self.motion.rotate_left()
+                    self.last_turn = "left"
                 else:
                     self.motion.rotate_right()
+                    self.last_turn = "right"
 
-                time.sleep(0.7)
+                time.sleep(0.8)
                 self.motion.stop()
 
                 self.motion.forward()
                 self.last_forward_time = time.time()
-                time.sleep(1.5)
+                time.sleep(1.0)
 
                 self.last_escape_time = time.time()
                 self.state = "SEARCH"
