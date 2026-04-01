@@ -22,3 +22,4 @@ class Motion:
 
     def rotate_right(self):
         self._send(0.0, -1.2)
+

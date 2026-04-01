@@ -40,3 +40,4 @@ class Detector:
                     found = True
 
         return boxes, found
+

@@ -4,187 +4,210 @@ import rclpy
 from rclpy.node import Node
 
 from sensor_msgs.msg import Image
+from std_msgs.msg import Int32
+from geometry_msgs.msg import Twist
 from cv_bridge import CvBridge
 
 import cv2
 import threading
 import time
 
-from ultralytics import YOLO
+from web_control.ai_modes.behaviors.vision.detector import Detector
+from web_control.ai_modes.behaviors.control.motion import Motion
+from web_control.ai_modes.behaviors.control.head import Head
+from web_control.ai_modes.behaviors.control.alerts import Alerts
+
+from ros_robot_controller_msgs.msg import SetPWMServoState, BuzzerState
 
 
-class CleanYoloNode(Node):
+class ScanAndFind(Node):
 
     def __init__(self):
-        super().__init__('clean_yolo_node')
+        super().__init__('scan_and_find')
 
         self.bridge = CvBridge()
 
-        # =========================
-        # STATE
-        # =========================
+        # ===== STATE =====
         self.current_image = None
-        self.running = True
+        self.distance = 100
 
         self.frame_count = 0
-        self.process_every_n = 6   # keep your good lag
+        self.process_every_n = 5
 
+        self.target_detected = False
         self.last_boxes = []
 
-        # =========================
-        # YOLO
-        # =========================
-        self.get_logger().info("Loading YOLO...")
-        self.model = YOLO("yolov8n.pt")
-        self.get_logger().info("YOLO loaded")
+        self.lock = threading.Lock()
 
-        # =========================
-        # ROS
-        # =========================
-        self.create_subscription(
-            Image,
-            '/image_raw',
-            self.image_callback,
-            1
-        )
+        # ===== MODULES =====
+        self.detector = Detector()
 
-        self.debug_pub = self.create_publisher(
-            Image,
-            '/avoidance/debug_image',
-            1
-        )
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.servo_pub = self.create_publisher(SetPWMServoState, 'ros_robot_controller/pwm_servo/set_state', 10)
+        self.buzzer_pub = self.create_publisher(BuzzerState, '/ros_robot_controller/set_buzzer', 10)
 
-        # =========================
-        # THREAD
-        # =========================
-        threading.Thread(target=self.loop, daemon=True).start()
+        self.debug_pub = self.create_publisher(Image, '/avoidance/debug_image', 1)
 
-    # =========================
-    def image_callback(self, msg):
+        self.motion = Motion(self.cmd_pub)
+        self.head = Head(self.servo_pub)
+        self.alerts = Alerts(self.buzzer_pub)
+
+        # ===== SUBS =====
+        self.create_subscription(Image, '/image_raw', self.img_cb, 1)
+        self.create_subscription(Int32, 'sonar_controller/get_distance', self.dist_cb, 10)
+
+        # ===== THREADS =====
+        threading.Thread(target=self.vision_loop, daemon=True).start()
+        threading.Thread(target=self.control_loop, daemon=True).start()
+
+    def img_cb(self, msg):
         try:
             self.current_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
         except:
             pass
 
-    # =========================
-    def loop(self):
+    def dist_cb(self, msg):
+        self.distance = msg.data / 10.0
 
-        while self.running:
+    # =========================
+    # VISION THREAD (FAST)
+    # =========================
+    def vision_loop(self):
+
+        while rclpy.ok():
 
             if self.current_image is None:
                 time.sleep(0.02)
                 continue
 
-            frame = self.current_image
+            frame = self.current_image.copy()
 
             self.frame_count += 1
 
-            # =====================
-            # YOLO (IMPROVED ONLY)
-            # =====================
             if self.frame_count % self.process_every_n == 0:
-                try:
-                    h, w = frame.shape[:2]
 
-                    # 🔥 CENTER CROP
-                    y1_crop = int(h * 0.2)
-                    y2_crop = int(h * 0.9)
-                    x1_crop = int(w * 0.2)
-                    x2_crop = int(w * 0.8)
+                boxes, found = self.detector.detect(frame)
 
-                    crop = frame[y1_crop:y2_crop, x1_crop:x2_crop]
-
-                    results = self.model(
-                        crop,
-                        imgsz=352,   # 🔥 better detection
-                        conf=0.15,   # 🔥 more sensitive
-                        iou=0.4,
-                        verbose=False
-                    )
-
-                    boxes = []
-
-                    for r in results:
-                        for b in r.boxes:
-                            x1, y1, x2, y2 = map(int, b.xyxy[0])
-                            conf = float(b.conf[0])
-                            cls = int(b.cls[0])
-                            label = self.model.names[cls]
-
-                            # 🔥 map back to original frame
-                            x1 += x1_crop
-                            x2 += x1_crop
-                            y1 += y1_crop
-                            y2 += y1_crop
-
-                            boxes.append((x1, y1, x2, y2, label, conf))
-
+                with self.lock:
                     self.last_boxes = boxes
+                    if found:
+                        self.target_detected = True
 
-                except Exception as e:
-                    self.get_logger().warn(f"YOLO error: {e}")
+            # ===== DRAW =====
+            for (x1, y1, x2, y2, label) in self.last_boxes:
 
-            # =====================
-            # DRAW
-            # =====================
-            for (x1, y1, x2, y2, label, conf) in self.last_boxes:
-
-                color = (0,255,0)
-
+                color = (0, 255, 0)
                 if label == "sports ball":
-                    color = (0,0,255)
+                    color = (0, 0, 255)
 
-                cv2.rectangle(frame, (x1,y1), (x2,y2), color, 2)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(
                     frame,
-                    f"{label} {conf:.2f}",
-                    (x1, y1-10),
+                    label,
+                    (x1, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.5,
                     color,
                     2
                 )
 
-            # =====================
-            # DEBUG
-            # =====================
-            cv2.putText(frame, "STREAM OK", (20,40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
-
-            cv2.putText(frame, f"Boxes: {len(self.last_boxes)}",
-                        (20,80),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,255), 2)
-
-            # =====================
-            # PUBLISH
-            # =====================
+            # ===== DEBUG STREAM =====
             try:
                 msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
                 self.debug_pub.publish(msg)
             except:
                 pass
 
-            # =====================
-            # FPS CONTROL
-            # =====================
             time.sleep(0.03)
 
+    # =========================
+    # CONTROL THREAD (SLOW)
+    # =========================
+    def control_loop(self):
 
-# =========================
+        while rclpy.ok():
+
+            with self.lock:
+                detected = self.target_detected
+
+            # ===== TARGET =====
+            if detected:
+                self.motion.stop()
+                self.alerts.beep5()
+
+                with self.lock:
+                    self.target_detected = False
+
+                time.sleep(2)
+                continue
+
+            # ===== OBSTACLE =====
+            if self.distance < 40:
+                self.motion.stop()
+                self.motion.rotate_right()
+                time.sleep(0.8)
+                self.motion.stop()
+                continue
+
+            # =========================
+            # STEP 1: MOVE FORWARD (REAL MOVE)
+            # =========================
+            self.motion.forward()
+            time.sleep(1.0)   # ← WAS 0.3 → TOO SHORT
+            self.motion.stop()
+
+            # =========================
+            # STEP 2: SCAN RIGHT (SLOW + STABLE)
+            # =========================
+            self.head.move(2, 1800, 0.5)
+
+            time.sleep(0.4)  # ← GIVE YOLO TIME
+
+            with self.lock:
+                right_boxes = len(self.last_boxes)
+
+            # =========================
+            # STEP 3: SCAN LEFT
+            # =========================
+            self.head.move(2, 1200, 0.5)
+
+            time.sleep(0.4)
+
+            with self.lock:
+                left_boxes = len(self.last_boxes)
+
+            # =========================
+            # STEP 4: CENTER
+            # =========================
+            self.head.move(2, 1500, 0.3)
+
+            # =========================
+            # STEP 5: DECISION (SMOOTH)
+            # =========================
+            if right_boxes > left_boxes:
+                self.motion.rotate_right()
+                time.sleep(0.6)
+
+            elif left_boxes > right_boxes:
+                self.motion.rotate_left()
+                time.sleep(0.6)
+
+            else:
+                # nothing interesting → small search
+                self.motion.rotate_left()
+                time.sleep(0.4)
+
+            self.motion.stop()
+
+
 def main():
     rclpy.init()
-    node = CleanYoloNode()
-
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-
-    finally:
-        node.running = False
-        node.destroy_node()
-        rclpy.shutdown()
+    node = ScanAndFind()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
 
 if __name__ == '__main__':
     main()
+

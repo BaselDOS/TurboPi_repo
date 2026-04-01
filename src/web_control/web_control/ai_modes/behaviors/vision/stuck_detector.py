@@ -19,4 +19,4 @@ class StuckDetector:
 
         self.prev = gray
 
-        return score < 2.0
+        return score < 0.5

@@ -17,6 +17,7 @@ from web_control.ai_modes.behaviors.vision.detector import Detector
 from web_control.ai_modes.behaviors.control.motion import Motion
 from web_control.ai_modes.behaviors.control.head import Head
 from web_control.ai_modes.behaviors.control.alerts import Alerts
+from web_control.ai_modes.behaviors.control.control_loop import ControlLoop
 
 from ros_robot_controller_msgs.msg import SetPWMServoState, BuzzerState
 
@@ -52,6 +53,13 @@ class ScanAndFind(Node):
         self.motion = Motion(self.cmd_pub)
         self.head = Head(self.servo_pub)
         self.alerts = Alerts(self.buzzer_pub)
+        self.control = ControlLoop(
+            motion=self.motion,
+            alerts=self.alerts,
+            get_frame=lambda: self.current_image,
+            get_distance=lambda: self.distance,
+            lock=self.lock
+        )
 
         # ===== SUBS =====
         self.create_subscription(Image, '/image_raw', self.img_cb, 1)
@@ -59,7 +67,7 @@ class ScanAndFind(Node):
 
         # ===== THREADS =====
         threading.Thread(target=self.vision_loop, daemon=True).start()
-        threading.Thread(target=self.control_loop, daemon=True).start()
+        threading.Thread(target=self.control.run, daemon=True).start()
 
     def img_cb(self, msg):
         try:
@@ -91,9 +99,7 @@ class ScanAndFind(Node):
 
                 with self.lock:
                     self.last_boxes = boxes
-                    if found:
-                        self.target_detected = True
-
+                self.control.update_target(found)
             # ===== DRAW =====
             for (x1, y1, x2, y2, label) in self.last_boxes:
 
@@ -121,119 +127,6 @@ class ScanAndFind(Node):
 
             time.sleep(0.03)
 
-    # =========================
-    # CONTROL THREAD (SLOW)
-    # =========================
-    def control_loop(self):
-
-        self.last_explore_time = time.time()
-        self.explore_interval = 12.0   # between 10–15 sec
-
-        while rclpy.ok():
-
-            now = time.time()
-
-            with self.lock:
-                detected = self.target_detected
-
-            # ===== TARGET FOUND =====
-            if detected:
-                self.motion.stop()
-                time.sleep(0.3)
-                self.alerts.beep5()
-
-                with self.lock:
-                    self.target_detected = False
-
-                time.sleep(2)
-                continue
-
-            # =========================
-            # REAL-TIME OBSTACLE AVOIDANCE
-            # =========================
-            if self.distance < 35:
-                self.motion.stop()
-
-                # step back
-                self.motion._send(-0.2, 0.0)
-                time.sleep(0.4)
-                self.motion.stop()
-
-                # turn random direction (NO bias)
-                if random.random() > 0.5:
-                    self.motion.rotate_left()
-                else:
-                    self.motion.rotate_right()
-
-                time.sleep(0.5)
-                self.motion.stop()
-
-                continue
-
-            # =========================
-            # PERIODIC EXPLORATION (10–15 sec)
-            # =========================
-            if now - self.last_explore_time > self.explore_interval:
-
-                self.motion.stop()
-                time.sleep(0.4)
-
-                # ===== SMALL RANDOM ROTATION (~45°) =====
-                if random.random() > 0.5:
-                    self.motion.rotate_left()
-                else:
-                    self.motion.rotate_right()
-
-                time.sleep(0.4)
-                self.motion.stop()
-                time.sleep(0.3)
-
-                right_score = 0
-                left_score = 0
-
-                # ===== SCAN RIGHT (~1 sec) =====
-                self.head.move(2, 1800, 0.8)
-                for _ in range(6):
-                    time.sleep(0.15)
-                    with self.lock:
-                        right_score += len(self.last_boxes)
-
-                # ===== SCAN LEFT (~1 sec) =====
-                self.head.move(2, 1200, 0.8)
-                for _ in range(6):
-                    time.sleep(0.15)
-                    with self.lock:
-                        left_score += len(self.last_boxes)
-
-                # ===== CENTER =====
-                self.head.move(2, 1500, 0.6)
-                time.sleep(0.3)
-
-                # ===== DECISION =====
-                if right_score > left_score + 2:
-                    self.motion.rotate_right()
-                    time.sleep(0.4)
-
-                elif left_score > right_score + 2:
-                    self.motion.rotate_left()
-                    time.sleep(0.4)
-
-                # else → keep direction (no forced turn)
-
-                self.motion.stop()
-
-                # reset timer
-                self.last_explore_time = now
-
-                continue
-
-            # =========================
-            # NORMAL CONTINUOUS DRIVE
-            # =========================
-            self.motion.forward()
-            time.sleep(0.1)
-
-
 def main():
     rclpy.init()
     node = ScanAndFind()
@@ -244,3 +137,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
