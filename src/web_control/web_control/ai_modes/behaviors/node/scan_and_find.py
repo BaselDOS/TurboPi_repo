@@ -34,7 +34,7 @@ class ScanAndFind(Node):
         self.distance = 100
 
         self.frame_count = 0
-        self.process_every_n = 5
+        self.process_every_n = 2
 
         self.target_detected = False
         self.last_boxes = []

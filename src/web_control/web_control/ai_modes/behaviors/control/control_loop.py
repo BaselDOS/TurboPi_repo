@@ -4,6 +4,7 @@ import cv2
 from web_control.ai_modes.behaviors.vision.vision_detector import VisionDetector
 from web_control.ai_modes.behaviors.vision.optical_flow import OpticalFlowDetector
 from web_control.ai_modes.behaviors.control.motion_controller import MotionController
+from web_control.ai_modes.behaviors.control.target_follow import TargetFollow
 
 
 class ControlLoop:
@@ -24,6 +25,8 @@ class ControlLoop:
         self.vision = VisionDetector()
         self.flow = OpticalFlowDetector()
         self.controller = MotionController()
+        
+        self.target_follow = TargetFollow()
 
         self.target_detected = False
 
@@ -48,23 +51,18 @@ class ControlLoop:
 
             distance = self.get_distance()
 
-            with self.lock:
-                detected = self.target_detected
-
             # =========================
-            # 🎯 TARGET FOUND
+            # 🎯 TARGET FOLLOW MODE
             # =========================
-            if detected:
-                self.motion.stop()
-                time.sleep(0.2)
+            boxes = self.get_boxes()
 
-                self.alerts.beep5()
+            cmd = self.target_follow.compute(frame, boxes)
 
-                with self.lock:
-                    self.target_detected = False
-
+            if cmd is not None:
+                lin_x, ang_z = cmd
+                self.motion._send(float(lin_x), float(ang_z))
+                time.sleep(0.05)
                 continue
-
             # =========================
             # 🧠 VISION + FLOW (LIKE AVOIDANCE NODE)
             # =========================
