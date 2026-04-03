@@ -18,3 +18,4 @@ class Head:
         self.pub.publish(msg)
 
         time.sleep(wait)
+

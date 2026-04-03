@@ -74,19 +74,22 @@ class ControlLoop:
 
                 cmd = self.target_follow.compute(frame, boxes)
 
-                # 🚨 HARD STOP (guarantee stop)
-                for _ in range(3):
-                    self.motion.stop()
-                    time.sleep(0.01)
-
                 if cmd is not None:
-                    self.last_servo = cmd
-                    self.head.move(2, int(cmd), 0.05)
-                else:
-                    # keep last position (no jump)
-                    self.head.move(2, int(self.last_servo), 0.05)
+                    servo_pos, lin_x, ang_z = cmd
 
-                time.sleep(0.05)
+                    self.last_servo = servo_pos
+
+                    # smooth head
+                    self.head.move(2, int(servo_pos), 0.02)
+
+                    # gentle follow motion
+                    self.motion._send(float(lin_x), float(ang_z))
+
+                else:
+                    self.head.move(2, int(self.last_servo), 0.02)
+                    self.motion.stop()
+
+                time.sleep(0.01)
                 continue
 
             # =========================
@@ -110,7 +113,7 @@ class ControlLoop:
             # =========================
             # 🔍 SCAN (ONLY IN SEARCH)
             # =========================
-            if time.time() - self.last_scan > self.scan_interval:
+            if self.state == "SEARCH" and time.time() - self.last_scan > self.scan_interval: 
 
                 self.motion.stop()
                 time.sleep(0.3)
@@ -121,15 +124,15 @@ class ControlLoop:
 
                 # right
                 self.head.move(2, 1800, 0.3)
-                time.sleep(1.0)
+                time.sleep(0.5)
 
                 # left
                 self.head.move(2, 1200, 0.3)
-                time.sleep(1.0)
+                time.sleep(0.5)
 
                 # back to center
                 self.head.move(2, 1500, 0.3)
 
                 self.last_scan = time.time()
 
-            time.sleep(0.05)
+            time.sleep(0.01)
