@@ -2,7 +2,6 @@
 
 import rclpy
 from rclpy.node import Node
-import random
 
 from sensor_msgs.msg import Image
 from std_msgs.msg import Int32
@@ -32,21 +31,28 @@ class ScanAndFind(Node):
         # ===== STATE =====
         self.current_image = None
         self.distance = 100
-
-        self.frame_count = 0
-        self.process_every_n = 3
-
-        self.target_detected = False
         self.last_boxes = []
 
         self.lock = threading.Lock()
+
+        # ===== DETECTION TIMING =====
+        self.detect_interval = 0.10   # run YOLO about 10 times/sec
+        self.last_detect_time = 0.0
 
         # ===== MODULES =====
         self.detector = Detector()
 
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.servo_pub = self.create_publisher(SetPWMServoState, 'ros_robot_controller/pwm_servo/set_state', 10)
-        self.buzzer_pub = self.create_publisher(BuzzerState, '/ros_robot_controller/set_buzzer', 10)
+        self.servo_pub = self.create_publisher(
+            SetPWMServoState,
+            'ros_robot_controller/pwm_servo/set_state',
+            10
+        )
+        self.buzzer_pub = self.create_publisher(
+            BuzzerState,
+            '/ros_robot_controller/set_buzzer',
+            10
+        )
 
         self.debug_pub = self.create_publisher(Image, '/avoidance/debug_image', 1)
 
@@ -73,40 +79,44 @@ class ScanAndFind(Node):
 
     def img_cb(self, msg):
         try:
-            self.current_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-        except:
+            frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            self.current_image = frame
+        except Exception:
             pass
 
     def dist_cb(self, msg):
         self.distance = msg.data / 10.0
 
     # =========================
-    # VISION THREAD (FAST)
+    # VISION THREAD
     # =========================
     def vision_loop(self):
 
         while rclpy.ok():
 
             if self.current_image is None:
-                time.sleep(0.02)
+                time.sleep(0.01)
                 continue
 
-            frame = self.current_image
+            # always work on the latest frame only
+            frame = self.current_image.copy()
+            now = time.time()
 
-            self.frame_count += 1
-
-            if self.frame_count % self.process_every_n == 0:
-
+            # run YOLO on time basis, not every N frames
+            if now - self.last_detect_time >= self.detect_interval:
                 boxes, found = self.detector.detect(frame)
 
                 with self.lock:
                     self.last_boxes = boxes
-                if found:
-                    self.control.update_target(True)
-                else:
-                    self.control.update_target(False) 
+
+                self.control.update_target(found)
+                self.last_detect_time = now
+            else:
+                with self.lock:
+                    boxes = list(self.last_boxes)
+
             # ===== DRAW =====
-            for (x1, y1, x2, y2, label) in self.last_boxes:
+            for (x1, y1, x2, y2, label) in boxes:
 
                 color = (0, 255, 0)
                 if label == "sports ball":
@@ -127,10 +137,11 @@ class ScanAndFind(Node):
             try:
                 msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
                 self.debug_pub.publish(msg)
-            except:
+            except Exception:
                 pass
 
-            time.sleep(0.03)
+            time.sleep(0.01)
+
 
 def main():
     rclpy.init()
@@ -142,4 +153,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
