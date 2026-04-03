@@ -29,6 +29,7 @@ class ControlLoop:
         self.target_follow = TargetFollow()
 
         self.target_detected = False
+        self.last_target_time = 0  # 🔥 NEW
 
         # scan behavior
         self.last_scan = 0
@@ -37,7 +38,13 @@ class ControlLoop:
     # =========================
     def update_target(self, detected):
         with self.lock:
-            self.target_detected = detected
+            if detected:
+                self.target_detected = True
+                self.last_target_time = time.time()
+            else:
+                # 🔥 timeout reset (important)
+                if time.time() - self.last_target_time > 2.0:
+                    self.target_detected = False
 
     # =========================
     def run(self):
@@ -52,17 +59,41 @@ class ControlLoop:
             distance = self.get_distance()
 
             # =========================
-            # 🎯 TARGET FOLLOW MODE
+            # 🎯 TARGET MODE (FIXED)
             # =========================
             boxes = self.get_boxes()
 
-            cmd = self.target_follow.compute(frame, boxes)
+            if self.target_detected:
 
-            if cmd is not None:
-                lin_x, ang_z = cmd
-                self.motion._send(float(lin_x), float(ang_z))
+                cmd = self.target_follow.compute(frame, boxes)
+
+                if cmd is not None:
+                    lin_x, ang_z, cx, cy = cmd
+
+                    # =========================
+                    # 🔥 MOVE ROBOT
+                    # =========================
+                    self.motion._send(float(lin_x), float(ang_z))
+
+                    # =========================
+                    # 🔥 MOVE CAMERA (HEAD TRACKING)
+                    # =========================
+                    center_x = frame.shape[1] // 2
+
+                    if abs(cx - center_x) > 30:
+                        if cx > center_x:
+                            self.head.move(2, 1600, 0.1)  # right
+                        else:
+                            self.head.move(2, 1400, 0.1)  # left 
+                else:
+                    # 🔥 HOLD + SLOW SEARCH (NO PANIC)
+                    self.motion.stop()
+                    time.sleep(0.2)
+
+                    self.motion._send(0.0, 0.4)  # slow rotation
                 time.sleep(0.05)
                 continue
+
             # =========================
             # 🧠 VISION + FLOW (LIKE AVOIDANCE NODE)
             # =========================
@@ -72,7 +103,7 @@ class ControlLoop:
             left, center, right = self.vision.detect(frame)
 
             # =========================
-            # 🧠 DECISION (THE REAL FIX)
+            # 🧠 DECISION
             # =========================
             lin_x, lin_y, ang_z = self.controller.decide(
                 left,
@@ -85,23 +116,46 @@ class ControlLoop:
             # =========================
             # 🚗 MOVE
             # =========================
-            self.motion._send(float(lin_x),float( ang_z))
+            self.motion._send(float(lin_x), float(ang_z))
 
             # =========================
-            # 🔍 SCAN (CONTROLLED, NOT CHAOTIC)
+            # 🔍 SCAN
             # =========================
             if time.time() - self.last_scan > self.scan_interval:
 
+                # 🔥 FULL STOP BEFORE SCAN
                 self.motion.stop()
+                time.sleep(0.3)
 
-                self.head.move(2, 1800, 0.5)
-                time.sleep(0.5)
+                # =========================
+                # CENTER SCAN
+                # =========================
+                self.head.move(2, 1500, 0.3)
+                time.sleep(1.0)
 
-                self.head.move(2, 1200, 0.5)
-                time.sleep(0.5)
+                if self.target_detected:
+                    self.last_scan = time.time()
+                    continue
 
+                # =========================
+                # RIGHT SCAN
+                # =========================
+                self.head.move(2, 1800, 0.3)
+                time.sleep(1.0)
+
+                if self.target_detected:
+                    self.last_scan = time.time()
+                    continue
+
+                # =========================
+                # LEFT SCAN
+                # =========================
+                self.head.move(2, 1200, 0.3)
+                time.sleep(1.0)
+
+                # return center
                 self.head.move(2, 1500, 0.3)
 
-                self.last_scan = time.time()
+                self.last_scan = time.time() 
 
             time.sleep(0.05)

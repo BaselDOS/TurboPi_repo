@@ -34,7 +34,7 @@ class ScanAndFind(Node):
         self.distance = 100
 
         self.frame_count = 0
-        self.process_every_n = 2
+        self.process_every_n = 3
 
         self.target_detected = False
         self.last_boxes = []
@@ -91,7 +91,7 @@ class ScanAndFind(Node):
                 time.sleep(0.02)
                 continue
 
-            frame = self.current_image.copy()
+            frame = self.current_image
 
             self.frame_count += 1
 
@@ -101,7 +101,10 @@ class ScanAndFind(Node):
 
                 with self.lock:
                     self.last_boxes = boxes
-                self.control.update_target(found)
+                if found:
+                    self.control.update_target(True)
+                else:
+                    self.control.update_target(False) 
             # ===== DRAW =====
             for (x1, y1, x2, y2, label) in self.last_boxes:
 

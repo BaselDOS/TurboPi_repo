@@ -1,22 +1,24 @@
 import cv2
 
-
 class TargetFollow:
 
     def __init__(self):
-        # tuning params
         self.center_tolerance = 40
-        self.kp_ang = 0.0025
 
-        self.area_stop = 60000
-        self.area_slow = 25000
+        # servo limits (tune if needed)
+        self.servo_min = 1200
+        self.servo_max = 1800
+        self.servo_center = 1500
+
+        self.current_pos = self.servo_center
+        self.step = 30  # how fast the head moves
 
     def compute(self, frame, boxes):
 
         target_box = None
         max_area = 0
 
-        # ===== find biggest target =====
+        # ===== find biggest sports ball =====
         for (x1, y1, x2, y2, label) in boxes:
             if label == "sports ball":
                 area = (x2 - x1) * (y2 - y1)
@@ -25,7 +27,7 @@ class TargetFollow:
                     target_box = (x1, y1, x2, y2)
 
         if target_box is None:
-            return None  # no target
+            return None
 
         x1, y1, x2, y2 = target_box
 
@@ -34,18 +36,18 @@ class TargetFollow:
 
         error_x = cx - (w // 2)
 
-        # ===== angular control =====
-        if abs(error_x) > self.center_tolerance:
-            ang_z = -self.kp_ang * error_x
-        else:
-            ang_z = 0.0
+        # ===== HEAD CONTROL =====
+        if abs(error_x) < self.center_tolerance:
+            return self.current_pos  # no movement
 
-        # ===== forward control =====
-        if max_area > self.area_stop:
-            lin_x = 0.0
-        elif max_area > self.area_slow:
-            lin_x = 0.15
+        if error_x > 0:
+            # target is RIGHT → move head RIGHT
+            self.current_pos -= self.step
         else:
-            lin_x = 0.30
+            # target is LEFT → move head LEFT
+            self.current_pos += self.step
 
-        return float(lin_x), float(ang_z)
+        # clamp
+        self.current_pos = max(self.servo_min, min(self.servo_max, self.current_pos))
+
+        return self.current_pos
