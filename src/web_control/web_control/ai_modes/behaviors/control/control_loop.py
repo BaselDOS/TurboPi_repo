@@ -37,15 +37,17 @@ class ControlLoop:
 
         # scan behavior
         self.last_scan = 0
-        self.scan_interval = 5.0
+        self.scan_interval = 7.0
 
     # =========================
     def update_target(self, detected):
         with self.lock:
             if detected:
+                if self.state != "FOLLOW":
+                    self.alerts.beep(3)   # 🔔 beep ONLY on first detection
+
                 self.last_target_time = time.time()
                 self.state = "FOLLOW"
-
     # =========================
     def run(self):
 
@@ -72,22 +74,21 @@ class ControlLoop:
             # =========================
             if self.state == "FOLLOW":
 
-                cmd = self.target_follow.compute(frame, boxes)
+                servo_pos = self.target_follow.compute(frame, boxes)
 
-                if cmd is not None:
-                    servo_pos, lin_x, ang_z = cmd
-
+                if servo_pos is not None:
                     self.last_servo = servo_pos
 
-                    # smooth head
+                    # move ONLY head
                     self.head.move(2, int(servo_pos), 0.02)
 
-                    # gentle follow motion
-                    self.motion._send(float(lin_x), float(ang_z))
+                    # STOP body completely
+                    self.motion.stop()
 
                 else:
+                    # keep last position
                     self.head.move(2, int(self.last_servo), 0.02)
-                    self.motion.stop()
+                    self.motion.stop() 
 
                 time.sleep(0.01)
                 continue
@@ -124,15 +125,17 @@ class ControlLoop:
 
                 # right
                 self.head.move(2, 1800, 0.3)
-                time.sleep(0.5)
+                time.sleep(1.0)
 
                 # left
                 self.head.move(2, 1200, 0.3)
-                time.sleep(0.5)
+                time.sleep(1.0)
 
                 # back to center
                 self.head.move(2, 1500, 0.3)
+                time.sleep(0.5)
 
                 self.last_scan = time.time()
 
             time.sleep(0.01)
+
