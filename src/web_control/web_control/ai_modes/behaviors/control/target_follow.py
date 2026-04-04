@@ -3,7 +3,7 @@ import cv2
 class TargetFollow:
 
     def __init__(self):
-        self.center_tolerance = 60   # bigger = less jitter
+        self.center_tolerance = 50   # dead-zone (tune 30–70)
 
         # servo limits
         self.servo_min = 1200
@@ -12,17 +12,15 @@ class TargetFollow:
 
         # smoothing
         self.current_pos = 1500
-        self.alpha = 0.25
-        self.max_step = 25
-
-        # distance control
-        self.target_area = 9000
+        self.alpha = 0.25        # smoothing factor (0.15–0.4)
+        self.max_step = 25       # max movement per update (15–40)
 
     def compute(self, frame, boxes):
 
         target_box = None
         max_area = 0
 
+        # ===== find biggest sports ball =====
         for (x1, y1, x2, y2, label) in boxes:
             if label == "sports ball":
                 area = (x2 - x1) * (y2 - y1)
@@ -41,45 +39,29 @@ class TargetFollow:
         center_x = w // 2
         error = cx - center_x
 
-        # ===== HEAD =====
+        # ===== DEAD ZONE =====
         if abs(error) < self.center_tolerance:
-            target_pos = self.current_pos
-        else:
-            gain = 0.4
-            target_pos = int(self.servo_center - error * gain)
+            return self.current_pos
 
+        # ===== TARGET POSITION =====
+        gain = 0.4
+        target_pos = int(self.servo_center - error * gain)
+
+        # clamp
         target_pos = max(self.servo_min, min(self.servo_max, target_pos))
 
+        # ===== SMOOTHING =====
         smoothed = int(
             self.current_pos * (1 - self.alpha) +
             target_pos * self.alpha
         )
 
+        # ===== SPEED LIMIT =====
         diff = smoothed - self.current_pos
+
         if abs(diff) > self.max_step:
             smoothed = self.current_pos + self.max_step * (1 if diff > 0 else -1)
 
         self.current_pos = smoothed
 
-        # ===== ROTATION =====
-        ang_z = 0.0
-        if error > self.center_tolerance:
-            ang_z = -0.5
-        elif error < -self.center_tolerance:
-            ang_z = 0.5
-
-        # ===== DISTANCE =====
-        lin_x = 0.0
-
-        # ===== SAFE DISTANCE ZONE =====
-        upper = self.target_area * 0.9
-        lower = self.target_area * 0.5
-
-        if max_area > upper:
-            lin_x = -0.3  # too close → go back
-        elif max_area < lower:
-            lin_x = 0.3   # too far → go forward
-        else:
-            lin_x = 0.0    # good distance → stop 
-
-        return self.current_pos, lin_x, ang_z
+        return self.current_pos
