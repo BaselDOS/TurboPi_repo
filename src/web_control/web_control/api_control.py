@@ -40,6 +40,13 @@ def register_control_routes(server):
         methods=['POST']
     )
 
+    server.app.add_url_rule(
+        '/api/voice_command',
+        'api_voice_command',
+        lambda: api_voice_command(server),
+        methods=['POST']
+    )
+
 
 def _hard_stop_robot(server, repeats=10, delay=0.05):
     server.robot.move_x = 0.0
@@ -241,3 +248,25 @@ def api_camera(server):
         server.robot.cam_tilt = tilt
 
     return jsonify({"status": "ok"})
+
+#--------------------------------------------------
+# Voice command recorder
+#-------------------------------------------------
+def api_voice_command(server):
+    try:
+        file = request.files.get("audio")
+        if not file:
+            return jsonify({"error": "No audio"}), 400
+
+        path = "/tmp/voice.webm"
+        file.save(path)
+
+        # TEMP transcription
+        text = "test command"
+
+        print("VOICE TEXT:", text)
+
+        return jsonify({"text": text})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
