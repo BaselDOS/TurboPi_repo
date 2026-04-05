@@ -8,9 +8,12 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Int32
 from cv_bridge import CvBridge
 
-from .vision_detector import VisionDetector
-from .optical_flow import OpticalFlowDetector
-from .motion_controller import MotionController
+from web_control.ai_modes.behaviors.vision.vision_detector import VisionDetector
+from web_control.ai_modes.behaviors.vision.optical_flow import OpticalFlowDetector
+from web_control.ai_modes.behaviors.control.motion_controller import MotionController
+
+# ✅ YOLO IMPORT
+from web_control.ai_modes.behaviors.vision.detector import Detector
 
 
 class AvoidanceNode(Node):
@@ -24,6 +27,12 @@ class AvoidanceNode(Node):
         self.vision = VisionDetector()
         self.flow = OpticalFlowDetector()
         self.motion = MotionController()
+
+        # ✅ YOLO INIT
+        self.detector = Detector()
+        self.detect_interval = 0.15
+        self.last_detect_time = 0.0
+        self.last_boxes = []
 
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
 
@@ -69,7 +78,6 @@ class AvoidanceNode(Node):
         """🔥 HARD STOP (VERY IMPORTANT)"""
         msg = Twist()
 
-        # publish multiple times to guarantee stop
         for _ in range(5):
             self.cmd_pub.publish(msg)
             time.sleep(0.05)
@@ -85,6 +93,21 @@ class AvoidanceNode(Node):
             return
 
         try:
+            # =========================
+            # ✅ YOLO DETECTION (NON-BLOCKING)
+            # =========================
+            now = time.time()
+
+            if now - self.last_detect_time >= self.detect_interval:
+                boxes, _ = self.detector.detect(frame)
+                self.last_boxes = boxes
+                self.last_detect_time = now
+            else:
+                boxes = self.last_boxes
+
+            # =========================
+            # ORIGINAL AVOIDANCE LOGIC
+            # =========================
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             flow_val = self.flow.compute(gray)
 
@@ -98,7 +121,9 @@ class AvoidanceNode(Node):
                 self.distance
             )
 
+            # =========================
             # DEBUG TEXT
+            # =========================
             cv2.putText(
                 frame,
                 f"DIST: {self.distance:.1f} cm",
@@ -119,10 +144,36 @@ class AvoidanceNode(Node):
                 2
             )
 
-            # MOVE
+            # =========================
+            # ✅ DRAW YOLO BOXES
+            # =========================
+            for (x1, y1, x2, y2, label) in boxes:
+
+                color = (255, 0, 0)  # BLUE
+
+                if label == "sports ball":
+                    color = (0, 0, 255)  # RED target
+
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
+                cv2.putText(
+                    frame,
+                    label,
+                    (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    color,
+                    2
+                )
+
+            # =========================
+            # MOVE (UNCHANGED)
+            # =========================
             self.publish_cmd(x, y, z)
 
+            # =========================
             # DEBUG STREAM
+            # =========================
             debug_msg = self.bridge.cv2_to_imgmsg(frame, "bgr8")
             self.debug_pub.publish(debug_msg)
 
@@ -143,9 +194,7 @@ def main(args=None):
         pass
 
     finally:
-        # 🔥 CRITICAL FIX
         node.stop_robot()
-
         node.destroy_node()
         rclpy.shutdown()
 

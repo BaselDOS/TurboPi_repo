@@ -45,7 +45,8 @@ setup(
     entry_points={
         'console_scripts': [
             'web_control_node = web_control.web_control_node:main',
-            'avoidance_node = web_control.avoidance.avoidance_node:main',
+            'avoidance_node = web_control.autonomous.avoidance_node:main',
+            'scan_and_find_node = web_control.autonomous.scan_and_find_node:main', 
             'joystick_node = web_control.joystick.joystick_node:main',
             'ai_assistant_node = web_control.ai_modes.nodes.ai_assistant_node:main',
         ],

@@ -132,10 +132,9 @@ def api_run_node(server):
 
         elif node == "avoidance":
             cmd = [
-                "ros2",
-                "run",
-                "web_control",
-                "avoidance_node"
+                "python3",
+                "-m",
+                "web_control.autonomous.node.avoidance_node"  
             ]
             server.stream_source = "debug"
 
@@ -152,7 +151,7 @@ def api_run_node(server):
             cmd = [
                 "python3",
                 "-m",
-                "web_control.ai_modes.behaviors.node.scan_and_find"
+                "web_control.autonomous.node.scan_and_find"
             ]
             server.stream_source = "debug"
 
