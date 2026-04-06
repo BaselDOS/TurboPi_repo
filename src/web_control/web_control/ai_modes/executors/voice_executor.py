@@ -65,10 +65,28 @@ class VoiceExecutor:
         self.current_mode = "chat"
         self.process_lock = threading.Lock()
 
+        # 🔥 STREAM BRIDGE (NEW)
+        self.stream_bridge_started = False
+
         # 🔥 FIX DUPLICATES
         self.is_processing = False
         self.last_command_time = 0
         self.last_command_text = None
+
+    # =========================
+    def _start_stream_bridge(self):
+        if self.stream_bridge_started:
+            return
+
+        try:
+            subprocess.Popen(
+                ["ros2", "run", "web_control", "stream_bridge"],
+                start_new_session=True
+            )
+            self.stream_bridge_started = True
+            print("Stream bridge started")
+        except Exception as e:
+            print("Failed to start stream bridge:", e)
 
     # =========================
     def process(self, text: str) -> str:
@@ -207,6 +225,9 @@ class VoiceExecutor:
     # =========================
     def _start_autonomous_process(self, command, mode_name):
         self.stop_all()
+
+        # 🔥 START BUFFER HERE
+        self._start_stream_bridge()
 
         try:
             self.current_process = subprocess.Popen(
