@@ -2,6 +2,12 @@ import signal
 import subprocess
 import time
 from flask import request, jsonify
+import os
+import traceback
+from openai import OpenAI
+from std_msgs.msg import String
+
+from web_control.ai_modes.core.config import llm_api_key
 
 
 def register_control_routes(server):
@@ -254,6 +260,7 @@ def api_camera(server):
 #-------------------------------------------------
 def api_voice_command(server):
     try:
+
         file = request.files.get("audio")
         if not file:
             return jsonify({"error": "No audio"}), 400
@@ -261,12 +268,33 @@ def api_voice_command(server):
         path = "/tmp/voice.webm"
         file.save(path)
 
-        # TEMP transcription
-        text = "test command"
+        # -----------------------------
+        # Whisper (speech → text)
+        # -----------------------------
+        client = OpenAI(api_key=llm_api_key)
 
-        print("VOICE TEXT:", text)
+        with open(path, "rb") as f:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+                language="en"
+            )
+
+        text = transcript.text.strip()
+        print("REAL VOICE TEXT:", text)
+
+        # -----------------------------
+        # Send to AI node via ROS
+        # -----------------------------
+        if not hasattr(server, "voice_cmd_pub"):
+            return jsonify({"error": "voice_cmd_pub not initialized"}), 500
+
+        msg = String()
+        msg.data = text
+        server.voice_cmd_pub.publish(msg)
 
         return jsonify({"text": text})
 
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500

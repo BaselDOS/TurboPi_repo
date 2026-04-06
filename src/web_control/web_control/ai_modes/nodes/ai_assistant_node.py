@@ -8,7 +8,7 @@ import threading
 import rclpy
 from rclpy.node import Node
 from ament_index_python.packages import get_package_share_directory
-
+from std_msgs.msg import String
 
 from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import (
@@ -59,6 +59,13 @@ class AIAssistantNode(Node):
         self.buzzer_pub = self.create_publisher(
             BuzzerState,
             "/ros_robot_controller/set_buzzer",
+            10
+        )
+
+        self.create_subscription(
+            String,
+            "/voice_commands",
+            self.ui_voice_callback,
             10
         )
 
@@ -156,6 +163,27 @@ class AIAssistantNode(Node):
                 print("ERROR:", e)
                 time.sleep(0.1)
 
+    def ui_voice_callback(self, msg):
+        text = msg.data.strip()
+        if not text:
+            return
+
+        print("UI VOICE:", text)
+
+        try:
+            if self.is_vision_request(text):
+                result = self.vision_executor.describe()
+            else:
+                result = self.voice_executor.process(text)
+
+            if not result:
+                result = "I don't know."
+
+            print("AI:", result)
+            self.tts.tts(result)
+
+        except Exception as e:
+            print("ERROR (UI voice):", e)
 
 def main():
     rclpy.init()
