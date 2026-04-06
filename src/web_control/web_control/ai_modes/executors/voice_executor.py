@@ -6,6 +6,7 @@ import time
 import threading
 from datetime import datetime
 from openai import OpenAI
+import subprocess
 
 from web_control.ai_modes.core.config import llm_api_key, llm_base_url
 from web_control.ai_modes.core.color_map import COLOR_MAP, ALLOWED_LED_COLORS
@@ -57,7 +58,8 @@ class VoiceExecutor:
             rgb_pub=self.rgb_pub,
             servo_pub=self.servo_pub
         )
-
+        
+        self.current_process = None
     # =========================
     def process(self, text: str) -> str:
 
@@ -121,6 +123,12 @@ class VoiceExecutor:
 
         elif t == "sing":
             self._handle_sing()
+
+        elif t == "avoidance":
+            self._handle_avoidance()
+
+        elif t == "scan":
+            self._handle_scan()
 
     # =========================
     def _extract_json(self, text):
@@ -255,6 +263,34 @@ class VoiceExecutor:
 
         threading.Thread(target=run, daemon=True).start()
     
+     # =========================
+    def _handle_avoidance(self):
+        print("Starting avoidance node")
+
+        self._stop_process()
+
+        self.current_process = subprocess.Popen([
+            "ros2", "run", "web_control", "avoidance_node"
+        ])
+
+
+    # =========================
+    def _handle_scan(self):
+        print("Starting scan_and_find node")
+
+        self._stop_process()
+
+        self.current_process = subprocess.Popen([
+            "ros2", "run", "web_control", "scan_and_find"
+        ])
+
+
+    # =========================
+def _stop_process(self):
+    if self.current_process:
+        print("Stopping previous node")
+        self.current_process.terminate()
+        self.current_process = None
 
     # =========================
     def stop_all(self):

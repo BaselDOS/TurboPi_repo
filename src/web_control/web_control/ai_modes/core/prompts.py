@@ -27,6 +27,8 @@ ALLOWED COMMAND TYPES:
 - buzzer
 - dance
 - vision_mode
+- avoidance
+- scan
 
 MOVE VALUES:
 - forward
@@ -101,6 +103,18 @@ LED RULES:
 - NEVER say a color is unsupported if it is listed above
 - If the user asks for lights out, lights off, turn off lights, darkness, or no lights, use:
   {"type":"led","value":"off"}
+
+AVOIDANCE MODE:
+- If the user says:
+  "take a walk", "walk around", "start walking"
+  use:
+  {"type":"avoidance"}
+
+SCAN MODE:
+- If the user says:
+  "find the ball", "find small ball", "search for ball"
+  use:
+  {"type":"scan"}
 
 VISION MODE INTENT:
 - If the user asks to detect a face, find a face, follow a face, or start face tracking:
