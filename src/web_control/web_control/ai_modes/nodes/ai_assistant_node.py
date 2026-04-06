@@ -33,7 +33,7 @@ class AIAssistantNode(Node):
         self.vision_mode = "idle"
 
         # =========================
-        # STATE MACHINE (NEW)
+        # STATE MACHINE
         # =========================
         self.ui_state = "IDLE"
         self.last_interaction_time = time.time()
@@ -144,6 +144,23 @@ class AIAssistantNode(Node):
         return any(k in t for k in triggers)
 
     # =========================
+    # 🔥 NEW WAKE WORD LOGIC
+    # =========================
+    def is_wake_word(self, text):
+        if not text:
+            return False
+
+        text = text.lower()
+
+        variants = [
+            "dos",
+            "dose",
+            "doss"
+        ]
+
+        return any(v in text for v in variants)
+
+    # =========================
     def run(self):
 
         print("Waiting for wake word...")
@@ -188,7 +205,7 @@ class AIAssistantNode(Node):
                 time.sleep(0.1)
 
     # =========================
-    # 🔥 FIXED UI FLOW (STATE MACHINE)
+    # UI FLOW
     # =========================
     def ui_voice_callback(self, msg):
         text = (msg.data or "").strip().lower()
@@ -200,20 +217,17 @@ class AIAssistantNode(Node):
         now = time.time()
 
         try:
-            # =========================
-            # TIMEOUT
-            # =========================
             if self.ui_state == "LISTENING":
                 if now - self.last_interaction_time > self.timeout_sec:
                     print("Timeout → back to IDLE")
                     self.ui_state = "IDLE"
 
             # =========================
-            # STATE: IDLE
+            # IDLE → WAIT FOR WAKE WORD
             # =========================
             if self.ui_state == "IDLE":
 
-                if "turbopi" in text:
+                if self.is_wake_word(text):
                     print("Wake word detected (UI)")
 
                     self.ui_state = "LISTENING"
@@ -228,7 +242,7 @@ class AIAssistantNode(Node):
                 return
 
             # =========================
-            # STATE: LISTENING
+            # LISTENING → COMMAND
             # =========================
             if self.ui_state == "LISTENING":
 
