@@ -2,16 +2,20 @@
 # encoding: utf-8
 
 import json
-import time
-import threading
-from datetime import datetime
-from openai import OpenAI
+import os
+import signal
 import subprocess
+import threading
+import time
+from datetime import datetime
+
+from openai import OpenAI
 
 from web_control.ai_modes.core.config import llm_api_key, llm_base_url
 from web_control.ai_modes.core.color_map import COLOR_MAP, ALLOWED_LED_COLORS
 from web_control.ai_modes.core.prompts import VOICE_ASSISTANT_PROMPT
 from web_control.ai_modes.actions.sing_controller import SingController
+from web_control.ai_modes.actions.dance_controller import DanceController
 
 from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import (
@@ -19,8 +23,6 @@ from ros_robot_controller_msgs.msg import (
     SetPWMServoState, PWMServoState,
     BuzzerState
 )
-
-from web_control.ai_modes.actions.dance_controller import DanceController
 
 
 class VoiceExecutor:
@@ -52,17 +54,19 @@ class VoiceExecutor:
             servo_pub=self.servo_pub,
             buzzer_pub=self.buzzer_pub
         )
-        
+
         self.sing = SingController(
             cmd_pub=self.cmd_pub,
             rgb_pub=self.rgb_pub,
             servo_pub=self.servo_pub
         )
-        
+
         self.current_process = None
+        self.current_mode = "chat"
+        self.process_lock = threading.Lock()
+
     # =========================
     def process(self, text: str) -> str:
-
         text = (text or "").strip()
         if not text:
             return "I did not hear anything."
@@ -72,8 +76,14 @@ class VoiceExecutor:
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": VOICE_ASSISTANT_PROMPT + f"\nDate: {today}"},
-                {"role": "user", "content": text},
+                {
+                    "role": "system",
+                    "content": VOICE_ASSISTANT_PROMPT + f"\nDate: {today}"
+                },
+                {
+                    "role": "user",
+                    "content": text
+                },
             ],
             temperature=0,
         )
@@ -88,7 +98,6 @@ class VoiceExecutor:
         reply = data.get("reply", "Okay.")
         commands = data.get("commands", [])
 
-        # 🔥 SEQUENTIAL execution (important fix)
         for cmd in commands:
             self._execute_command(cmd)
 
@@ -96,18 +105,11 @@ class VoiceExecutor:
 
     # =========================
     def _execute_command(self, cmd):
-        t = cmd.get("type")
+        t = (cmd.get("type") or "").strip()
 
         if t == "move":
-            duration = cmd.get("duration")
-            if duration is None:
-                print("Missing duration → skipping move")
-                return
-
-            self._handle_move(
-                cmd.get("value"),
-                duration
-            )
+            duration = cmd.get("duration", 1.5)
+            self._handle_move(cmd.get("value"), duration)
 
         elif t == "camera":
             self._handle_camera(cmd.get("value"))
@@ -130,21 +132,86 @@ class VoiceExecutor:
         elif t == "scan":
             self._handle_scan()
 
+        elif t == "vision_mode":
+            # keep existing AI node alive; only stop autonomous motion modes
+            self._stop_autonomous_process()
+            self.current_mode = cmd.get("value", "idle")
+
     # =========================
     def _extract_json(self, text):
         try:
             start = text.find("{")
             end = text.rfind("}") + 1
             return json.loads(text[start:end])
-        except:
+        except Exception:
             return None
 
     # =========================
-    # 🔥 FIXED: BLOCKING movement (no threads)
-    def _handle_move(self, direction, duration=1.5):
+    def _publish_stop(self):
+        if self.cmd_pub:
+            self.cmd_pub.publish(Twist())
 
+    # =========================
+    def _stop_autonomous_process(self):
+        with self.process_lock:
+            proc = self.current_process
+            if not proc:
+                return
+
+            try:
+                if proc.poll() is None:
+                    try:
+                        os.killpg(proc.pid, signal.SIGINT)
+                        proc.wait(timeout=2.0)
+                    except Exception:
+                        try:
+                            os.killpg(proc.pid, signal.SIGTERM)
+                            proc.wait(timeout=1.5)
+                        except Exception:
+                            try:
+                                os.killpg(proc.pid, signal.SIGKILL)
+                            except Exception:
+                                pass
+            finally:
+                self.current_process = None
+                self.current_mode = "chat"
+                self._publish_stop()
+
+    # =========================
+    def _start_autonomous_process(self, command, mode_name):
+        self.stop_all()
+
+        try:
+            self.current_process = subprocess.Popen(
+                command,
+                start_new_session=True
+            )
+            self.current_mode = mode_name
+            print(f"Started mode: {mode_name}")
+        except Exception as e:
+            self.current_process = None
+            self.current_mode = "chat"
+            print(f"Failed to start {mode_name}: {e}")
+
+    # =========================
+    def stop_all(self):
+        self._stop_autonomous_process()
+        self._publish_stop()
+        self._handle_led("off")
+
+    # =========================
+    def _handle_move(self, direction, duration=1.5):
         if not self.cmd_pub:
             return
+
+        direction = (direction or "").strip().lower()
+
+        if direction == "stop":
+            self.stop_all()
+            return
+
+        # manual move should stop autonomous mode first
+        self._stop_autonomous_process()
 
         t = Twist()
 
@@ -163,14 +230,20 @@ class VoiceExecutor:
         else:
             return
 
+        self.current_mode = "chat"
         self.cmd_pub.publish(t)
-        time.sleep(duration)
-        self.cmd_pub.publish(Twist())
+        time.sleep(float(duration))
+        self._publish_stop()
 
     # =========================
     def _handle_camera(self, action):
         if not self.servo_pub:
             return
+
+        # camera manual command should stop autonomous mode first
+        self._stop_autonomous_process()
+
+        action = (action or "").strip().lower()
 
         if action == "look_up":
             sid, pos = 1, 1300
@@ -190,6 +263,7 @@ class VoiceExecutor:
         msg.state = [s]
         msg.duration = 0.2
 
+        self.current_mode = "chat"
         self.servo_pub.publish(msg)
         time.sleep(0.4)
 
@@ -198,20 +272,17 @@ class VoiceExecutor:
         if not self.buzzer_pub:
             return
 
-        for _ in range(count):
+        for _ in range(int(count)):
             msg = BuzzerState()
             msg.freq = 2000
             msg.on_time = 0.2
             msg.off_time = 0.01
             msg.repeat = 1
-
             self.buzzer_pub.publish(msg)
             time.sleep(0.3)
 
     # =========================
-    # 🔥 FIXED: robust LED handling
     def _handle_led(self, color):
-
         if not color:
             return
 
@@ -227,7 +298,7 @@ class VoiceExecutor:
             r, g, b = COLOR_MAP[color]
 
         def publish_loop():
-            for _ in range(3):  # 🔥 important
+            for _ in range(3):
                 if self.rgb_pub:
                     msg = RGBStates()
                     msg.states = [
@@ -250,49 +321,36 @@ class VoiceExecutor:
 
     # =========================
     def _handle_dance(self):
+        self._stop_autonomous_process()
 
         def run():
+            self.current_mode = "chat"
             self.dance.fun_dance()
 
         threading.Thread(target=run, daemon=True).start()
-     # =========================
+
+    # =========================
     def _handle_sing(self):
+        self._stop_autonomous_process()
 
         def run():
+            self.current_mode = "chat"
             self.sing.sing()
 
         threading.Thread(target=run, daemon=True).start()
-    
-     # =========================
+
+    # =========================
     def _handle_avoidance(self):
         print("Starting avoidance node")
-
-        self._stop_process()
-
-        self.current_process = subprocess.Popen([
-            "ros2", "run", "web_control", "avoidance_node"
-        ])
-
+        self._start_autonomous_process(
+            ["ros2", "run", "web_control", "avoidance_node"],
+            "avoidance"
+        )
 
     # =========================
     def _handle_scan(self):
         print("Starting scan_and_find node")
-
-        self._stop_process()
-
-        self.current_process = subprocess.Popen([
-            "ros2", "run", "web_control", "scan_and_find"
-        ])
-
-
-    # =========================
-def _stop_process(self):
-    if self.current_process:
-        print("Stopping previous node")
-        self.current_process.terminate()
-        self.current_process = None
-
-    # =========================
-    def stop_all(self):
-        self.cmd_pub.publish(Twist())
-        self._handle_led("off")
+        self._start_autonomous_process(
+            ["ros2", "run", "web_control", "scan_and_find_node"],
+            "scan"
+        )

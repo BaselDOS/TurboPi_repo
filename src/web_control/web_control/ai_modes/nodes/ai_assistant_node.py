@@ -33,9 +33,13 @@ class AIAssistantNode(Node):
 
         self.ui_state = "IDLE"
 
-        # 🔥 SINGLE TASK CONTROL
         self.current_task_thread = None
         self.stop_flag = False
+        self.task_token = 0
+
+        self.last_ui_text = ""
+        self.last_ui_text_time = 0.0
+        self.duplicate_window = 1.2
 
         # =========================
         # PUBLISHERS
@@ -91,22 +95,32 @@ class AIAssistantNode(Node):
     def stop_current_task(self):
         print("Stopping current task...")
 
+        self.task_token += 1
         self.stop_flag = True
 
         try:
             speech.stop_audio()
-        except:
+        except Exception:
             pass
+
+        try:
+            self.voice_executor.stop_all()
+        except Exception as e:
+            print("voice_executor.stop_all error:", e)
 
         self.cmd_pub.publish(Twist())
 
         if self.current_task_thread and self.current_task_thread.is_alive():
-            self.current_task_thread.join(timeout=0.5)
+            self.current_task_thread.join(timeout=0.2)
 
+        self.current_task_thread = None
         self.stop_flag = False
 
     # =========================
     def run_task(self, text):
+        self.task_token += 1
+        my_token = self.task_token
+
         def task():
             if self.stop_flag:
                 return
@@ -118,7 +132,7 @@ class AIAssistantNode(Node):
             else:
                 result = self.voice_executor.process(text)
 
-            if self.stop_flag:
+            if self.stop_flag or my_token != self.task_token:
                 return
 
             if not result:
@@ -145,12 +159,27 @@ class AIAssistantNode(Node):
         return any(v in text for v in ["dos", "dose", "dios"])
 
     # =========================
+    def is_duplicate_ui_text(self, text):
+        now = time.time()
+
+        if text == self.last_ui_text and (now - self.last_ui_text_time) < self.duplicate_window:
+            return True
+
+        self.last_ui_text = text
+        self.last_ui_text_time = now
+        return False
+
+    # =========================
     def ui_voice_callback(self, msg):
         text = (msg.data or "").strip().lower()
         if not text:
             return
 
-        print(f"[UI] {self.ui_state} → {text}")
+        print(f"[UI] {self.ui_state} -> {text}")
+
+        if self.is_duplicate_ui_text(text):
+            print("Duplicate UI voice command ignored")
+            return
 
         if self.ui_state == "IDLE":
             if self.is_wake_word(text):
@@ -161,6 +190,10 @@ class AIAssistantNode(Node):
             return
 
         if self.ui_state == "LISTENING":
+            if self.is_wake_word(text):
+                print("Wake word repeated while already listening")
+                return
+
             self.stop_current_task()
             self.run_task(text)
 

@@ -2,6 +2,7 @@ from setuptools import setup, find_packages
 
 import os
 from glob import glob
+
 package_name = 'web_control'
 
 setup(
@@ -29,8 +30,10 @@ setup(
             'static/js/app.js'
         ]),
 
-        (os.path.join('share', 'web_control', 'ai_modes', 'resources', 'audio'),
-        glob('web_control/ai_modes/resources/audio/*.wav')),
+        (
+            os.path.join('share', 'web_control', 'ai_modes', 'resources', 'audio'),
+            glob('web_control/ai_modes/resources/audio/*.wav')
+        ),
     ],
 
     install_requires=['setuptools'],
@@ -45,8 +48,8 @@ setup(
     entry_points={
         'console_scripts': [
             'web_control_node = web_control.web_control_node:main',
-            'avoidance_node = web_control.autonomous.avoidance_node:main',
-            'scan_and_find_node = web_control.autonomous.scan_and_find_node:main', 
+            'avoidance_node = web_control.autonomous.node.avoidance_node:main',
+            'scan_and_find_node = web_control.autonomous.node.scan_and_find:main',
             'joystick_node = web_control.joystick.joystick_node:main',
             'ai_assistant_node = web_control.ai_modes.nodes.ai_assistant_node:main',
         ],

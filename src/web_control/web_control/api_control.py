@@ -158,7 +158,7 @@ def api_run_node(server):
                 "web_control",
                 "ai_assistant_node"
             ]
-            server.stream_source = "raw"
+            server.stream_source = "debug"
 
         elif node == "scan_and_find":
             cmd = [
