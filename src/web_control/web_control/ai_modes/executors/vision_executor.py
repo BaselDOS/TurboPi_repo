@@ -3,6 +3,7 @@
 
 import time
 import cv2
+import threading
 import mediapipe as mp
 
 import rclpy
@@ -12,6 +13,9 @@ from cv_bridge import CvBridge
 
 from speech import speech
 from web_control.ai_modes.core.config import vllm_api_key, vllm_base_url
+
+# 🔥 ADD THIS
+from web_control.autonomous.vision.detector import Detector
 
 
 class VisionExecutor(Node):
@@ -34,7 +38,13 @@ class VisionExecutor(Node):
         )
 
         # =========================
-        # VISION (OpenRouter / vision model)
+        # 🔥 YOLO DETECTOR (REUSED)
+        # =========================
+        self.detector = Detector()
+        self.latest_boxes = []
+
+        # =========================
+        # VISION (OpenRouter)
         # =========================
         self.client = speech.OpenAIAPI(vllm_api_key, vllm_base_url)
         self.model = "qwen/qwen3.5-flash-02-23"
@@ -42,7 +52,7 @@ class VisionExecutor(Node):
         # =========================
         # LINK BACK TO AI NODE
         # =========================
-        self.node = None  # injected from AI node
+        self.node = None
 
         # =========================
         # HAND GESTURES
@@ -70,6 +80,11 @@ class VisionExecutor(Node):
             min_detection_confidence=0.6
         )
 
+        # =========================
+        # 🔥 START YOLO LOOP
+        # =========================
+        threading.Thread(target=self.yolo_loop, daemon=True).start()
+
     # =========================
     def image_callback(self, msg):
         try:
@@ -78,9 +93,53 @@ class VisionExecutor(Node):
                 desired_encoding="bgr8"
             )
             self.latest_frame = frame
-            self.latest_debug_frame = frame.copy()
+
+            # keep fallback debug
+            if self.latest_debug_frame is None:
+                self.latest_debug_frame = frame.copy()
+
         except Exception as e:
             print("CV Bridge error:", e)
+
+    # =========================
+    # 🔥 YOLO LOOP (NEW)
+    # =========================
+    def yolo_loop(self):
+        while True:
+            try:
+                if self.latest_frame is not None:
+                    self.process_yolo()
+            except Exception as e:
+                print("YOLO error:", e)
+
+            time.sleep(0.03)
+
+    # =========================
+    # 🔥 YOLO PROCESS (NEW)
+    # =========================
+    def process_yolo(self):
+
+        frame = self.latest_frame.copy()
+
+        boxes, found = self.detector.detect(frame)
+
+        self.latest_boxes = boxes
+
+        # draw only target
+        for (x1, y1, x2, y2, label) in boxes:
+            if label == "sports ball":
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0,255,0), 2)
+                cv2.putText(
+                    frame,
+                    label,
+                    (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0,255,0),
+                    2
+                )
+
+        self.latest_debug_frame = frame
 
     # =========================
     # KEEP THIS
@@ -145,25 +204,11 @@ class VisionExecutor(Node):
                 found_face = True
 
         if found_face:
-            cv2.putText(
-                frame,
-                "FACE MODE",
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (0, 255, 0),
-                2
-            )
+            cv2.putText(frame, "FACE MODE", (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0), 2)
         else:
-            cv2.putText(
-                frame,
-                "FACE MODE - NO FACE",
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (0, 0, 255),
-                2
-            )
+            cv2.putText(frame, "FACE MODE - NO FACE", (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2)
 
         self.latest_debug_frame = frame
 
@@ -178,47 +223,22 @@ class VisionExecutor(Node):
         results = self.hands.process(rgb)
 
         if not results.multi_hand_landmarks:
-            cv2.putText(
-                frame,
-                "GESTURE MODE - NO HAND",
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (0, 0, 255),
-                2
-            )
+            cv2.putText(frame, "GESTURE MODE - NO HAND", (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2)
             self.latest_debug_frame = frame
             return
 
         hand = results.multi_hand_landmarks[0]
-        self.mp_draw.draw_landmarks(
-            frame,
-            hand,
-            self.mp_hands.HAND_CONNECTIONS
-        )
+        self.mp_draw.draw_landmarks(frame, hand, self.mp_hands.HAND_CONNECTIONS)
 
         gesture = self._detect_gesture(hand)
 
         if gesture:
-            cv2.putText(
-                frame,
-                f"GESTURE: {gesture}",
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (0, 255, 0),
-                2
-            )
+            cv2.putText(frame, f"GESTURE: {gesture}", (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0), 2)
         else:
-            cv2.putText(
-                frame,
-                "GESTURE MODE",
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (0, 255, 255),
-                2
-            )
+            cv2.putText(frame, "GESTURE MODE", (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,255), 2)
 
         self.latest_debug_frame = frame
 
@@ -227,7 +247,6 @@ class VisionExecutor(Node):
 
         now = time.time()
 
-        # HOLD STOP
         if gesture == self.last_gesture:
             if self.hold_start is None:
                 self.hold_start = now
@@ -240,7 +259,6 @@ class VisionExecutor(Node):
         else:
             self.hold_start = None
 
-        # debounce
         if gesture == self.last_gesture and (now - self.last_time) < 0.5:
             return
 
@@ -268,19 +286,6 @@ class VisionExecutor(Node):
 
         elif gesture == "thumb_up":
             ve._handle_dance()
-
-        # gesture sequence
-        if now - self.seq_time > 2:
-            self.gesture_sequence = []
-
-        self.seq_time = now
-        self.gesture_sequence.append(gesture)
-        self.gesture_sequence = self.gesture_sequence[-3:]
-
-        if self.gesture_sequence == ["two", "two", "fist"]:
-            print("DANCE TRIGGERED")
-            ve._handle_dance()
-            self.gesture_sequence = []
 
     # =========================
     def _detect_gesture(self, hand):

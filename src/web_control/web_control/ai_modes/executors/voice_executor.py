@@ -65,43 +65,71 @@ class VoiceExecutor:
         self.current_mode = "chat"
         self.process_lock = threading.Lock()
 
+        # 🔥 FIX DUPLICATES
+        self.is_processing = False
+        self.last_command_time = 0
+        self.last_command_text = None
+
     # =========================
     def process(self, text: str) -> str:
+
         text = (text or "").strip()
         if not text:
             return "I did not hear anything."
 
-        today = datetime.now().strftime("%Y-%m-%d")
+        now = time.time()
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": VOICE_ASSISTANT_PROMPT + f"\nDate: {today}"
-                },
-                {
-                    "role": "user",
-                    "content": text
-                },
-            ],
-            temperature=0,
-        )
+        if self.is_processing:
+            print("IGNORED: already processing")
+            return ""
 
-        raw = response.choices[0].message.content or ""
-        print("LLM RAW:", raw)
+        if text == self.last_command_text:
+            print("IGNORED: same command")
+            return ""
 
-        data = self._extract_json(raw)
-        if not data:
-            return "I did not understand."
+        if now - self.last_command_time < 1.0:
+            print("IGNORED: too fast")
+            return ""
 
-        reply = data.get("reply", "Okay.")
-        commands = data.get("commands", [])
+        self.is_processing = True
+        self.last_command_time = now
+        self.last_command_text = text
 
-        for cmd in commands:
-            self._execute_command(cmd)
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
 
-        return reply
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": VOICE_ASSISTANT_PROMPT + f"\nDate: {today}"
+                    },
+                    {
+                        "role": "user",
+                        "content": text
+                    },
+                ],
+                temperature=0,
+            )
+
+            raw = response.choices[0].message.content or ""
+            print("LLM RAW:", raw)
+
+            data = self._extract_json(raw)
+            if not data:
+                return "I did not understand."
+
+            reply = data.get("reply", "Okay.")
+            commands = data.get("commands", [])
+
+            for cmd in commands:
+                self._execute_command(cmd)
+
+            return reply
+
+        finally:
+            self.is_processing = False
 
     # =========================
     def _execute_command(self, cmd):
@@ -133,7 +161,6 @@ class VoiceExecutor:
             self._handle_scan()
 
         elif t == "vision_mode":
-            # keep existing AI node alive; only stop autonomous motion modes
             self._stop_autonomous_process()
             self.current_mode = cmd.get("value", "idle")
 
@@ -210,7 +237,6 @@ class VoiceExecutor:
             self.stop_all()
             return
 
-        # manual move should stop autonomous mode first
         self._stop_autonomous_process()
 
         t = Twist()
@@ -240,7 +266,6 @@ class VoiceExecutor:
         if not self.servo_pub:
             return
 
-        # camera manual command should stop autonomous mode first
         self._stop_autonomous_process()
 
         action = (action or "").strip().lower()
