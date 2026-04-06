@@ -114,7 +114,7 @@ class AIAssistantNode(Node):
         self.kws = awake.WonderEchoPro(port)
 
         self.asr = speech.RealTimeOpenAIASR()
-        self.asr.update_session(model="gpt-4o-mini")
+        self.asr.update_session(model="gpt-4o-mini-transcribe")
 
         self.tts = speech.RealTimeOpenAITTS()
 
