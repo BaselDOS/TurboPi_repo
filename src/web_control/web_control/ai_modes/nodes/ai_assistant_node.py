@@ -32,6 +32,16 @@ class AIAssistantNode(Node):
 
         self.vision_mode = "idle"
 
+        # =========================
+        # STATE MACHINE (NEW)
+        # =========================
+        self.ui_state = "IDLE"
+        self.last_interaction_time = time.time()
+        self.timeout_sec = 5
+
+        # =========================
+        # PUBLISHERS
+        # =========================
         self.rgb_pub = self.create_publisher(
             RGBStates,
             "/ros_robot_controller/set_rgb",
@@ -62,6 +72,9 @@ class AIAssistantNode(Node):
             10
         )
 
+        # =========================
+        # UI VOICE SUBSCRIBER
+        # =========================
         self.create_subscription(
             String,
             "/voice_commands",
@@ -69,6 +82,9 @@ class AIAssistantNode(Node):
             10
         )
 
+        # =========================
+        # VISION EXECUTOR
+        # =========================
         self.vision_executor = VisionExecutor()
         self.vision_executor.node = self
 
@@ -78,6 +94,9 @@ class AIAssistantNode(Node):
             daemon=True
         ).start()
 
+        # =========================
+        # VOICE EXECUTOR
+        # =========================
         self.voice_executor = VoiceExecutor(
             rgb_pub=self.rgb_pub,
             sonar_pub=self.sonar_pub,
@@ -88,11 +107,14 @@ class AIAssistantNode(Node):
         )
         self.voice_executor.node = self
 
+        # =========================
+        # AUDIO
+        # =========================
         port = "/dev/ttyUSB0"
         self.kws = awake.WonderEchoPro(port)
 
         self.asr = speech.RealTimeOpenAIASR()
-        self.asr.update_session(model="whisper-1")
+        self.asr.update_session(model="gpt-4o-mini")
 
         self.tts = speech.RealTimeOpenAITTS()
 
@@ -108,6 +130,7 @@ class AIAssistantNode(Node):
 
         print("AI Assistant Ready")
 
+    # =========================
     def is_vision_request(self, text):
         t = (text or "").lower()
 
@@ -120,6 +143,7 @@ class AIAssistantNode(Node):
 
         return any(k in t for k in triggers)
 
+    # =========================
     def run(self):
 
         print("Waiting for wake word...")
@@ -163,34 +187,78 @@ class AIAssistantNode(Node):
                 print("ERROR:", e)
                 time.sleep(0.1)
 
+    # =========================
+    # 🔥 FIXED UI FLOW (STATE MACHINE)
+    # =========================
     def ui_voice_callback(self, msg):
-        text = msg.data.strip()
+        text = (msg.data or "").strip().lower()
         if not text:
             return
 
-        print("UI VOICE:", text)
+        print(f"[UI] State={self.ui_state} | Text={text}")
+
+        now = time.time()
 
         try:
-            if self.is_vision_request(text):
-                result = self.vision_executor.describe()
-            else:
-                result = self.voice_executor.process(text)
+            # =========================
+            # TIMEOUT
+            # =========================
+            if self.ui_state == "LISTENING":
+                if now - self.last_interaction_time > self.timeout_sec:
+                    print("Timeout → back to IDLE")
+                    self.ui_state = "IDLE"
 
-            if not result:
-                result = "I don't know."
+            # =========================
+            # STATE: IDLE
+            # =========================
+            if self.ui_state == "IDLE":
 
-            print("AI:", result)
-            self.tts.tts(result)
+                if "turbopi" in text:
+                    print("Wake word detected (UI)")
+
+                    self.ui_state = "LISTENING"
+                    self.last_interaction_time = now
+
+                    speech.play_audio(self.wakeup_audio)
+                    self.tts.tts("I am ready")
+
+                else:
+                    print("Ignored (no wake word)")
+
+                return
+
+            # =========================
+            # STATE: LISTENING
+            # =========================
+            if self.ui_state == "LISTENING":
+
+                self.ui_state = "PROCESSING"
+
+                print("Processing command...")
+
+                if self.is_vision_request(text):
+                    result = self.vision_executor.describe()
+                else:
+                    result = self.voice_executor.process(text)
+
+                if not result:
+                    result = "I don't know."
+
+                print("AI:", result)
+                self.tts.tts(result)
+
+                self.ui_state = "IDLE"
+                return
 
         except Exception as e:
             print("ERROR (UI voice):", e)
+            self.ui_state = "IDLE"
+
 
 def main():
     rclpy.init()
     node = AIAssistantNode()
     node.run()
-    node.destroy_node()
-    rclpy.shutdown()
 
 
 if __name__ == "__main__":
