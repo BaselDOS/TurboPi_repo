@@ -17,9 +17,6 @@ from web_control.ai_modes.core.prompts import VOICE_ASSISTANT_PROMPT
 from web_control.ai_modes.actions.sing_controller import SingController
 from web_control.ai_modes.actions.dance_controller import DanceController
 
-# 🔥 NEW IMPORT
-from web_control.ai_modes.executors.internal_stream_bridge import start_stream_bridge
-
 from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import (
     RGBStates, RGBState,
@@ -68,10 +65,6 @@ class VoiceExecutor:
         self.current_mode = "chat"
         self.process_lock = threading.Lock()
 
-        # 🔥 START STREAM BRIDGE ONCE
-        start_stream_bridge()
-
-        # 🔥 FIX DUPLICATES
         self.is_processing = False
         self.last_command_time = 0
         self.last_command_text = None
@@ -86,15 +79,12 @@ class VoiceExecutor:
         now = time.time()
 
         if self.is_processing:
-            print("IGNORED: already processing")
             return ""
 
         if text == self.last_command_text:
-            print("IGNORED: same command")
             return ""
 
         if now - self.last_command_time < 1.0:
-            print("IGNORED: too fast")
             return ""
 
         self.is_processing = True
@@ -120,9 +110,8 @@ class VoiceExecutor:
             )
 
             raw = response.choices[0].message.content or ""
-            print("LLM RAW:", raw)
-
             data = self._extract_json(raw)
+
             if not data:
                 return "I did not understand."
 
@@ -142,8 +131,7 @@ class VoiceExecutor:
         t = (cmd.get("type") or "").strip()
 
         if t == "move":
-            duration = cmd.get("duration", 1.5)
-            self._handle_move(cmd.get("value"), duration)
+            self._handle_move(cmd.get("value"), cmd.get("duration", 1.5))
 
         elif t == "camera":
             self._handle_camera(cmd.get("value"))
@@ -185,6 +173,12 @@ class VoiceExecutor:
             self.cmd_pub.publish(Twist())
 
     # =========================
+    def stop_all(self):
+        self._stop_autonomous_process()
+        self._publish_stop()
+        self._handle_led("off")
+
+    # =========================
     def _stop_autonomous_process(self):
         with self.process_lock:
             proc = self.current_process
@@ -195,14 +189,18 @@ class VoiceExecutor:
                 if proc.poll() is None:
                     try:
                         os.killpg(proc.pid, signal.SIGINT)
-                        proc.wait(timeout=3.0)
+                        proc.wait(timeout=2.0)
                     except subprocess.TimeoutExpired:
                         os.killpg(proc.pid, signal.SIGKILL)
-            finally:
-                self.current_process = None
-                self.current_mode = "chat"
-                time.sleep(0.2)
-                self._publish_stop()
+            except Exception:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except Exception:
+                    pass
+
+            self.current_process = None
+            self.current_mode = "chat"
+            time.sleep(0.1)
 
     # =========================
     def _start_autonomous_process(self, command, mode_name):
@@ -214,28 +212,41 @@ class VoiceExecutor:
                 start_new_session=True
             )
             self.current_mode = mode_name
-            print(f"Started mode: {mode_name}")
         except Exception as e:
             self.current_process = None
             self.current_mode = "chat"
             print(f"Failed to start {mode_name}: {e}")
 
     # =========================
-    def stop_all(self):
-        self._stop_autonomous_process()
-        self._publish_stop()
-        self._handle_led("off")
-
-    # =========================
     def _handle_move(self, direction, duration=1.5):
+
         if not self.cmd_pub:
             return
 
         direction = (direction or "").strip().lower()
 
+        mapping = {
+            "forward": "forward",
+            "back": "backward",
+            "backward": "backward",
+            "left": "left",
+            "right": "right",
+            "turn left": "turn_left",
+            "turn right": "turn_right",
+            "rotate left": "turn_left",
+            "rotate right": "turn_right",
+        }
+
+        direction = mapping.get(direction, direction)
+
         if direction == "stop":
             self.stop_all()
             return
+
+        try:
+            duration = float(duration)
+        except Exception:
+            duration = 1.5
 
         self._stop_autonomous_process()
 
@@ -254,11 +265,11 @@ class VoiceExecutor:
         elif direction == "turn_right":
             t.angular.z = -1.0
         else:
+            print("UNKNOWN MOVE:", direction)
             return
 
-        self.current_mode = "chat"
         self.cmd_pub.publish(t)
-        time.sleep(float(duration))
+        time.sleep(duration)
         self._publish_stop()
 
     # =========================
@@ -272,15 +283,33 @@ class VoiceExecutor:
 
         if action == "look_up":
             sid, pos = 1, 1300
+
         elif action == "look_down":
             sid, pos = 1, 1700
+
         elif action == "look_left":
             sid, pos = 2, 1700
+
         elif action == "look_right":
             sid, pos = 2, 1300
+
         elif action == "look_center":
-            sid, pos = 1, 1500
-            sid, pos = 2, 1500
+            msg = SetPWMServoState()
+
+            s1 = PWMServoState()
+            s1.id = [1]
+            s1.position = [1500]
+
+            s2 = PWMServoState()
+            s2.id = [2]
+            s2.position = [1500]
+
+            msg.state = [s1, s2]
+            msg.duration = 0.3
+
+            self.servo_pub.publish(msg)
+            return
+
         else:
             return
 
@@ -291,22 +320,27 @@ class VoiceExecutor:
         msg.state = [s]
         msg.duration = 0.2
 
-        self.current_mode = "chat"
         self.servo_pub.publish(msg)
-        time.sleep(0.4)
 
     # =========================
     def _handle_buzzer(self, count=1):
+
         if not self.buzzer_pub:
             return
 
         for _ in range(int(count)):
             msg = BuzzerState()
+            msg.freq = 2000
+            msg.on_time = 0.2
+            msg.off_time = 0.2
+            msg.repeat = 1
+
             self.buzzer_pub.publish(msg)
-            time.sleep(0.3)
+            time.sleep(0.4)
 
     # =========================
     def _handle_led(self, color):
+
         if not color:
             return
 
@@ -320,20 +354,30 @@ class VoiceExecutor:
         else:
             r, g, b = COLOR_MAP[color]
 
-        msg = RGBStates()
-        msg.states = [
+        board_msg = RGBStates()
+        board_msg.states = [
             RGBState(index=1, red=r, green=g, blue=b),
             RGBState(index=2, red=r, green=g, blue=b),
         ]
 
+        sonar_msg = RGBStates()
+        sonar_msg.states = [
+            RGBState(index=0, red=r, green=g, blue=b),
+            RGBState(index=1, red=r, green=g, blue=b),
+        ]
+
         if self.rgb_pub:
-            self.rgb_pub.publish(msg)
+            self.rgb_pub.publish(board_msg)
+
+        if self.sonar_pub:
+            self.sonar_pub.publish(sonar_msg)
 
     # =========================
     def _handle_dance(self):
         self._stop_autonomous_process()
         threading.Thread(target=self.dance.fun_dance, daemon=True).start()
 
+    # =========================
     def _handle_sing(self):
         self._stop_autonomous_process()
         threading.Thread(target=self.sing.sing, daemon=True).start()
@@ -345,6 +389,7 @@ class VoiceExecutor:
             "avoidance"
         )
 
+    # =========================
     def _handle_scan(self):
         self._start_autonomous_process(
             ["ros2", "run", "web_control", "scan_and_find_node"],

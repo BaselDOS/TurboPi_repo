@@ -14,7 +14,6 @@ from cv_bridge import CvBridge
 from speech import speech
 from web_control.ai_modes.core.config import vllm_api_key, vllm_base_url
 
-# 🔥 ADD THIS
 from web_control.autonomous.vision.detector import Detector
 
 
@@ -38,7 +37,16 @@ class VisionExecutor(Node):
         )
 
         # =========================
-        # 🔥 YOLO DETECTOR (REUSED)
+        # 🔥 DEBUG PUBLISHER (NEW)
+        # =========================
+        self.debug_pub = self.create_publisher(
+            Image,
+            "/avoidance/debug_image",
+            10
+        )
+
+        # =========================
+        # YOLO DETECTOR
         # =========================
         self.detector = Detector()
         self.latest_boxes = []
@@ -81,9 +89,17 @@ class VisionExecutor(Node):
         )
 
         # =========================
-        # 🔥 START YOLO LOOP
+        # YOLO LOOP
         # =========================
         threading.Thread(target=self.yolo_loop, daemon=True).start()
+
+    # =========================
+    def publish_debug(self, frame):
+        try:
+            msg = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
+            self.debug_pub.publish(msg)
+        except Exception as e:
+            print("Debug publish error:", e)
 
     # =========================
     def image_callback(self, msg):
@@ -94,15 +110,12 @@ class VisionExecutor(Node):
             )
             self.latest_frame = frame
 
-            # keep fallback debug
             if self.latest_debug_frame is None:
                 self.latest_debug_frame = frame.copy()
 
         except Exception as e:
             print("CV Bridge error:", e)
 
-    # =========================
-    # 🔥 YOLO LOOP (NEW)
     # =========================
     def yolo_loop(self):
         while True:
@@ -115,8 +128,6 @@ class VisionExecutor(Node):
             time.sleep(0.03)
 
     # =========================
-    # 🔥 YOLO PROCESS (NEW)
-    # =========================
     def process_yolo(self):
 
         frame = self.latest_frame.copy()
@@ -125,7 +136,6 @@ class VisionExecutor(Node):
 
         self.latest_boxes = boxes
 
-        # draw only target
         for (x1, y1, x2, y2, label) in boxes:
             if label == "sports ball":
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0,255,0), 2)
@@ -140,9 +150,9 @@ class VisionExecutor(Node):
                 )
 
         self.latest_debug_frame = frame
+        self.publish_debug(frame)  # 🔥 NEW
 
     # =========================
-    # KEEP THIS
     def describe(self):
 
         if self.latest_frame is None:
@@ -211,6 +221,7 @@ class VisionExecutor(Node):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2)
 
         self.latest_debug_frame = frame
+        self.publish_debug(frame)  # 🔥 NEW
 
     # =========================
     def process_gesture(self):
@@ -226,6 +237,7 @@ class VisionExecutor(Node):
             cv2.putText(frame, "GESTURE MODE - NO HAND", (20, 40),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2)
             self.latest_debug_frame = frame
+            self.publish_debug(frame)  # 🔥 NEW
             return
 
         hand = results.multi_hand_landmarks[0]
@@ -241,6 +253,7 @@ class VisionExecutor(Node):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,255), 2)
 
         self.latest_debug_frame = frame
+        self.publish_debug(frame)  # 🔥 NEW
 
         if not gesture:
             return
@@ -286,32 +299,3 @@ class VisionExecutor(Node):
 
         elif gesture == "thumb_up":
             ve._handle_dance()
-
-    # =========================
-    def _detect_gesture(self, hand):
-
-        tips = [4, 8, 12, 16, 20]
-        fingers = []
-
-        fingers.append(hand.landmark[4].x < hand.landmark[3].x)
-
-        for tip in tips[1:]:
-            fingers.append(hand.landmark[tip].y < hand.landmark[tip - 2].y)
-
-        thumb, i, m, r, p = fingers
-
-        if thumb and not i and not m and not r and not p:
-            return "thumb_up"
-
-        count = sum(fingers)
-
-        if count == 0:
-            return "fist"
-        if count == 1:
-            return "one"
-        if count == 2:
-            return "two"
-        if count == 5:
-            return "five"
-
-        return None
