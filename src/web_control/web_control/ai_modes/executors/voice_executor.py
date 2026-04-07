@@ -17,6 +17,9 @@ from web_control.ai_modes.core.prompts import VOICE_ASSISTANT_PROMPT
 from web_control.ai_modes.actions.sing_controller import SingController
 from web_control.ai_modes.actions.dance_controller import DanceController
 
+# 🔥 NEW IMPORT
+from web_control.ai_modes.executors.internal_stream_bridge import start_stream_bridge
+
 from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import (
     RGBStates, RGBState,
@@ -65,28 +68,13 @@ class VoiceExecutor:
         self.current_mode = "chat"
         self.process_lock = threading.Lock()
 
-        # 🔥 STREAM BRIDGE (NEW)
-        self.stream_bridge_started = False
+        # 🔥 START STREAM BRIDGE ONCE
+        start_stream_bridge()
 
         # 🔥 FIX DUPLICATES
         self.is_processing = False
         self.last_command_time = 0
         self.last_command_text = None
-
-    # =========================
-    def _start_stream_bridge(self):
-        if self.stream_bridge_started:
-            return
-
-        try:
-            subprocess.Popen(
-                ["ros2", "run", "web_control", "stream_bridge"],
-                start_new_session=True
-            )
-            self.stream_bridge_started = True
-            print("Stream bridge started")
-        except Exception as e:
-            print("Failed to start stream bridge:", e)
 
     # =========================
     def process(self, text: str) -> str:
@@ -207,27 +195,18 @@ class VoiceExecutor:
                 if proc.poll() is None:
                     try:
                         os.killpg(proc.pid, signal.SIGINT)
-                        proc.wait(timeout=2.0)
-                    except Exception:
-                        try:
-                            os.killpg(proc.pid, signal.SIGTERM)
-                            proc.wait(timeout=1.5)
-                        except Exception:
-                            try:
-                                os.killpg(proc.pid, signal.SIGKILL)
-                            except Exception:
-                                pass
+                        proc.wait(timeout=3.0)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(proc.pid, signal.SIGKILL)
             finally:
                 self.current_process = None
                 self.current_mode = "chat"
+                time.sleep(0.2)
                 self._publish_stop()
 
     # =========================
     def _start_autonomous_process(self, command, mode_name):
         self.stop_all()
-
-        # 🔥 START BUFFER HERE
-        self._start_stream_bridge()
 
         try:
             self.current_process = subprocess.Popen(
@@ -299,6 +278,9 @@ class VoiceExecutor:
             sid, pos = 2, 1700
         elif action == "look_right":
             sid, pos = 2, 1300
+        elif action == "look_center":
+            sid, pos = 1, 1500
+            sid, pos = 2, 1500
         else:
             return
 
@@ -320,10 +302,6 @@ class VoiceExecutor:
 
         for _ in range(int(count)):
             msg = BuzzerState()
-            msg.freq = 2000
-            msg.on_time = 0.2
-            msg.off_time = 0.01
-            msg.repeat = 1
             self.buzzer_pub.publish(msg)
             time.sleep(0.3)
 
@@ -335,7 +313,6 @@ class VoiceExecutor:
         color = color.strip().lower()
 
         if color not in ALLOWED_LED_COLORS:
-            print("Invalid color:", color)
             return
 
         if color == "off":
@@ -343,59 +320,32 @@ class VoiceExecutor:
         else:
             r, g, b = COLOR_MAP[color]
 
-        def publish_loop():
-            for _ in range(3):
-                if self.rgb_pub:
-                    msg = RGBStates()
-                    msg.states = [
-                        RGBState(index=1, red=r, green=g, blue=b),
-                        RGBState(index=2, red=r, green=g, blue=b),
-                    ]
-                    self.rgb_pub.publish(msg)
+        msg = RGBStates()
+        msg.states = [
+            RGBState(index=1, red=r, green=g, blue=b),
+            RGBState(index=2, red=r, green=g, blue=b),
+        ]
 
-                if self.sonar_pub:
-                    msg = RGBStates()
-                    msg.states = [
-                        RGBState(index=0, red=r, green=g, blue=b),
-                        RGBState(index=1, red=r, green=g, blue=b),
-                    ]
-                    self.sonar_pub.publish(msg)
-
-                time.sleep(0.05)
-
-        threading.Thread(target=publish_loop, daemon=True).start()
+        if self.rgb_pub:
+            self.rgb_pub.publish(msg)
 
     # =========================
     def _handle_dance(self):
         self._stop_autonomous_process()
+        threading.Thread(target=self.dance.fun_dance, daemon=True).start()
 
-        def run():
-            self.current_mode = "chat"
-            self.dance.fun_dance()
-
-        threading.Thread(target=run, daemon=True).start()
-
-    # =========================
     def _handle_sing(self):
         self._stop_autonomous_process()
-
-        def run():
-            self.current_mode = "chat"
-            self.sing.sing()
-
-        threading.Thread(target=run, daemon=True).start()
+        threading.Thread(target=self.sing.sing, daemon=True).start()
 
     # =========================
     def _handle_avoidance(self):
-        print("Starting avoidance node")
         self._start_autonomous_process(
             ["ros2", "run", "web_control", "avoidance_node"],
             "avoidance"
         )
 
-    # =========================
     def _handle_scan(self):
-        print("Starting scan_and_find node")
         self._start_autonomous_process(
             ["ros2", "run", "web_control", "scan_and_find_node"],
             "scan"

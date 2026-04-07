@@ -44,6 +44,7 @@ CAMERA VALUES:
 - look_down
 - look_left
 - look_right
+- look_center
 
 LED VALUES:
 - red
