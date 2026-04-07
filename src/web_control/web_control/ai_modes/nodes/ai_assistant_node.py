@@ -157,7 +157,7 @@ class AIAssistantNode(Node):
 
     # =========================
     def is_wake_word(self, text):
-        return any(v in text for v in ["dos", "dose", "dios","Nickolas","Tom"])
+        return any(v in text for v in ["dos", "dose", "dios","nickolaus","Tom","tom","nicholaos","nicholas"])
 
     # =========================
     def is_duplicate_ui_text(self, text):
