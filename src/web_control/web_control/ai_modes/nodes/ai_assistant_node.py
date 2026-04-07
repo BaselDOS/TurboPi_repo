@@ -49,6 +49,7 @@ class AIAssistantNode(Node):
         self.cmd_pub = self.create_publisher(Twist, "/cmd_vel", 10)
         self.servo_pub = self.create_publisher(SetPWMServoState, "/ros_robot_controller/pwm_servo/set_state", 10)
         self.buzzer_pub = self.create_publisher(BuzzerState, "/ros_robot_controller/set_buzzer", 10)
+        self.stream_pub = self.create_publisher(String, "/stream_mode", 10)
 
         # =========================
         # SUBSCRIBER
@@ -220,3 +221,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

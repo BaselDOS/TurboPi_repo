@@ -22,6 +22,15 @@ class WebServer:
             "/voice_commands",
             10
         )
+        
+        
+
+        self.node.create_subscription(
+            String,
+            "/stream_mode",
+            self._stream_callback,
+            10
+        )
 
         self.battery_voltage = None
         self.last_battery_time = 0.0
@@ -64,6 +73,10 @@ class WebServer:
 
     def run_page(self):
         return render_template('run.html')
+    
+    def _stream_callback(self, msg):
+        self.stream_source = msg.data
+        print("🔥 STREAM SWITCHED TO:", msg.data)
 
     def _run_server(self):
         self.socketio.run(

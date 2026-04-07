@@ -8,6 +8,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+from std_msgs.msg import String
 
 from openai import OpenAI
 
@@ -216,13 +217,14 @@ class VoiceExecutor:
                 self.node.vision_executor.active = True
 
             # 🔥 SWITCH BACK TO RAW
-            if self.node and hasattr(self.node, "web_server"):
-                self.node.web_server.stream_source = "raw"
-
+            if self.node and hasattr(self.node, "stream_pub"):
+                msg = String()
+                msg.data = "raw"
+                self.node.stream_pub.publish(msg)
             time.sleep(0.1)
     # =========================
     def _start_autonomous_process(self, command, mode_name):
-         self.stop_all()
+        self.stop_all()
 
         try:
             # 🔥 STOP AI STREAM (publisher)
@@ -230,8 +232,10 @@ class VoiceExecutor:
                 self.node.vision_executor.active = False
 
             # 🔥 SWITCH STREAM TO DEBUG
-            if self.node and hasattr(self.node, "web_server"):
-                self.node.web_server.stream_source = "debug"
+            if self.node and hasattr(self.node, "stream_pub"):
+                msg = String()
+                msg.data = "debug"
+                self.node.stream_pub.publish(msg) 
 
             self.current_process = subprocess.Popen(
                 command,
@@ -423,3 +427,4 @@ class VoiceExecutor:
             ["ros2", "run", "web_control", "scan_and_find_node"],
             "scan"
         )
+

@@ -236,3 +236,4 @@ def api_voice_command(server):
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
