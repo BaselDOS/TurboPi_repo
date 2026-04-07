@@ -11,61 +11,17 @@ from web_control.ai_modes.core.config import llm_api_key
 
 
 def register_control_routes(server):
-    server.app.add_url_rule(
-        '/api/run_node',
-        'api_run_node',
-        lambda: api_run_node(server),
-        methods=['POST']
-    )
-
-    server.app.add_url_rule(
-        '/api/stop_node',
-        'api_stop_node',
-        lambda: api_stop_node(server),
-        methods=['POST']
-    )
-
-    server.app.add_url_rule(
-        '/api/move',
-        'api_move',
-        lambda: api_move(server),
-        methods=['POST']
-    )
-
-    server.app.add_url_rule(
-        '/api/rotate',
-        'api_rotate',
-        lambda: api_rotate(server),
-        methods=['POST']
-    )
-
-    server.app.add_url_rule(
-        '/api/camera',
-        'api_camera',
-        lambda: api_camera(server),
-        methods=['POST']
-    )
-
-    server.app.add_url_rule(
-        '/api/voice_command',
-        'api_voice_command',
-        lambda: api_voice_command(server),
-        methods=['POST']
-    )
+    server.app.add_url_rule('/api/run_node', 'api_run_node', lambda: api_run_node(server), methods=['POST'])
+    server.app.add_url_rule('/api/stop_node', 'api_stop_node', lambda: api_stop_node(server), methods=['POST'])
+    server.app.add_url_rule('/api/move', 'api_move', lambda: api_move(server), methods=['POST'])
+    server.app.add_url_rule('/api/rotate', 'api_rotate', lambda: api_rotate(server), methods=['POST'])
+    server.app.add_url_rule('/api/camera', 'api_camera', lambda: api_camera(server), methods=['POST'])
+    server.app.add_url_rule('/api/voice_command', 'api_voice_command', lambda: api_voice_command(server), methods=['POST'])
 
 
-def _hard_stop_robot(server, repeats=10, delay=0.05):
-    server.robot.move_x = 0.0
-    server.robot.move_y = 0.0
-    server.robot.rotate_dir = 0
-    server.robot.cam_pan = 0.0
-    server.robot.cam_tilt = 0.0
-
-    for _ in range(repeats):
-        server.robot.stop_motion_once()
-        time.sleep(delay)
-
-
+# -------------------------------------------------
+# 🔥 FIXED PROCESS STOP (WAIT + NO DUPLICATES)
+# -------------------------------------------------
 def _stop_current_process(server):
     proc = getattr(server, "current_process", None)
     if not proc:
@@ -73,30 +29,27 @@ def _stop_current_process(server):
 
     try:
         if proc.poll() is None:
-            # 1) ask nicely first so ROS/Python finally blocks can run
-            try:
-                proc.send_signal(signal.SIGINT)
-                proc.wait(timeout=2.0)
-            except subprocess.TimeoutExpired:
-                # 2) then try terminate
-                try:
-                    proc.terminate()
-                    proc.wait(timeout=1.5)
-                except subprocess.TimeoutExpired:
-                    # 3) last resort only
-                    proc.kill()
-                    proc.wait(timeout=1.0)
+            os.killpg(proc.pid, signal.SIGINT)
+
+            # wait until fully dead
+            for _ in range(20):
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.1)
+
+            # force kill if still alive
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGKILL)
+
     except Exception:
-        try:
-            proc.kill()
-        except Exception:
-            pass
+        pass
+
+    try:
+        proc.wait(timeout=1)
+    except:
+        pass
 
     server.current_process = None
-
-
-def _reset_robot_state(server):
-    _hard_stop_robot(server, repeats=10, delay=0.05)
 
 
 # -------------------------------------------------
@@ -107,81 +60,74 @@ def api_run_node(server):
     node = (data.get("node") or "").strip()
 
     try:
-        # stop previous mode cleanly
-        _stop_current_process(server)
+        # prevent duplicate AI
+        if node == "ai" and server.current_mode == "ai":
+            return jsonify({"message": "AI already running"})
 
-        # force stop robot before switching
-        _hard_stop_robot(server, repeats=10, delay=0.05)
+        # 🔥 stop previous + wait
+        _stop_current_process(server)
+        time.sleep(1.0)
 
         server.current_mode = node if node else "idle"
         server.stream_source = "raw"
 
-        # -------------------------------------------------
-        # JOYSTICK MODE (internal control only)
-        # -------------------------------------------------
+        # ------------------------
+        # JOYSTICK
+        # ------------------------
         if node == "joystick":
             server.robot.manual_control = True
             server.stream_source = "raw"
             return jsonify({"message": "Joystick mode enabled"})
 
-        # -------------------------------------------------
-        # ALL OTHER MODES
-        # -------------------------------------------------
         server.robot.manual_control = False
 
+        # ------------------------
+        # BODY CONTROL
+        # ------------------------
         if node == "body_control":
-            cmd = [
-                "python3",
-                "/home/ubuntu/ros2_ws/src/example/example/body_control.py"
-            ]
+            cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/body_control.py"]
             server.stream_source = "raw"
 
+        # ------------------------
+        # POSE
+        # ------------------------
         elif node == "pose":
-            cmd = [
-                "python3",
-                "/home/ubuntu/ros2_ws/src/example/example/pose.py"
-            ]
+            cmd = ["python3", "/home/ubuntu/ros2_ws/src/example/example/pose.py"]
             server.stream_source = "raw"
 
+        # ------------------------
+        # AVOIDANCE
+        # ------------------------
         elif node == "avoidance":
-            cmd = [
-                "python3",
-                "-m",
-                "web_control.autonomous.node.avoidance_node"  
-            ]
+            cmd = ["python3", "-m", "web_control.autonomous.node.avoidance_node"]
             server.stream_source = "debug"
 
+        # ------------------------
+        # AI MODE
+        # ------------------------
         elif node == "ai":
-            cmd = [
-                "ros2",
-                "run",
-                "web_control",
-                "ai_assistant_node"
-            ]
+            cmd = ["ros2", "run", "web_control", "ai_assistant_node"]
             server.stream_source = "debug"
 
+        # ------------------------
+        # SCAN AND FIND
+        # ------------------------
         elif node == "scan_and_find":
-            cmd = [
-                "python3",
-                "-m",
-                "web_control.autonomous.node.scan_and_find"
-            ]
+            cmd = ["python3", "-m", "web_control.autonomous.node.scan_and_find"]
             server.stream_source = "debug"
 
         else:
             server.current_mode = "idle"
             server.robot.manual_control = True
-            _hard_stop_robot(server, repeats=10, delay=0.05)
             return jsonify({"message": f"Unknown node: {node}"}), 400
 
-        server.current_process = subprocess.Popen(cmd)
+        server.current_process = subprocess.Popen(cmd, start_new_session=True)
+
+        print(">>> STARTING NODE:", node)
+
         return jsonify({"message": f"{node} started"})
 
     except Exception as e:
-        server.current_mode = "idle"
-        server.stream_source = "raw"
-        server.robot.manual_control = True
-        _hard_stop_robot(server, repeats=10, delay=0.05)
         return jsonify({"message": str(e)}), 500
 
 
@@ -193,10 +139,11 @@ def api_stop_node(server):
         _stop_current_process(server)
 
         server.current_mode = "idle"
-        server.stream_source = "raw"
-        server.robot.manual_control = True
 
-        _hard_stop_robot(server, repeats=15, delay=0.05)
+        # 🔥 FIX STREAM FREEZE
+        server.stream_source = "raw"
+
+        server.robot.manual_control = True
 
         return jsonify({"message": "Node stopped"})
 
@@ -255,12 +202,12 @@ def api_camera(server):
 
     return jsonify({"status": "ok"})
 
-#--------------------------------------------------
-# Voice command recorder
-#-------------------------------------------------
+
+# -------------------------------------------------
+# VOICE COMMAND
+# -------------------------------------------------
 def api_voice_command(server):
     try:
-
         file = request.files.get("audio")
         if not file:
             return jsonify({"error": "No audio"}), 400
@@ -268,9 +215,6 @@ def api_voice_command(server):
         path = "/tmp/voice.webm"
         file.save(path)
 
-        # -----------------------------
-        # Whisper (speech → text)
-        # -----------------------------
         client = OpenAI(api_key=llm_api_key)
 
         with open(path, "rb") as f:
@@ -282,12 +226,6 @@ def api_voice_command(server):
 
         text = transcript.text.strip()
         print("REAL VOICE TEXT:", text)
-
-        # -----------------------------
-        # Send to AI node via ROS
-        # -----------------------------
-        if not hasattr(server, "voice_cmd_pub"):
-            return jsonify({"error": "voice_cmd_pub not initialized"}), 500
 
         msg = String()
         msg.data = text

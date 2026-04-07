@@ -178,6 +178,16 @@ class VoiceExecutor:
         self._publish_stop()
         self._handle_led("off")
 
+        # 🔥 RESTORE VISION + FORCE STREAM
+        if hasattr(self, "node") and self.node:
+            ve = self.node.vision_executor
+            ve.active = True
+
+            # 🔥 FORCE STREAM TO UPDATE (CRITICAL FIX)
+            for _ in range(5):
+                if ve.latest_frame is not None:
+                    ve.publish_debug(ve.latest_frame.copy()) 
+
     # =========================
     def _stop_autonomous_process(self):
         with self.process_lock:
@@ -261,9 +271,9 @@ class VoiceExecutor:
         elif direction == "right":
             t.linear.y = -0.3
         elif direction == "turn_left":
-            t.angular.z = 1.0
+            t.angular.z = 2.0
         elif direction == "turn_right":
-            t.angular.z = -1.0
+            t.angular.z = -2.0
         else:
             print("UNKNOWN MOVE:", direction)
             return
