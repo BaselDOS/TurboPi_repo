@@ -121,11 +121,8 @@ class VisionExecutor(Node):
     def yolo_loop(self):
         while True:
             try:
-                # 🔥 FIX: ALWAYS publish something (prevents freeze)
+                # 🔥 FIX: DO NOT PUBLISH WHEN NOT ACTIVE
                 if not self.active:
-                    if self.latest_frame is not None:
-                        self.publish_debug(self.latest_frame.copy())
-
                     time.sleep(0.1)
                     continue
 

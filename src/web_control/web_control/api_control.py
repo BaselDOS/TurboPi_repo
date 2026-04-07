@@ -107,7 +107,7 @@ def api_run_node(server):
         # ------------------------
         elif node == "ai":
             cmd = ["ros2", "run", "web_control", "ai_assistant_node"]
-            server.stream_source = "debug"
+            server.stream_source = "raw"
 
         # ------------------------
         # SCAN AND FIND

@@ -210,22 +210,40 @@ class VoiceExecutor:
 
             self.current_process = None
             self.current_mode = "chat"
-            time.sleep(0.1)
 
+            # 🔥 RESTORE AI STREAM (publisher)
+            if self.node and hasattr(self.node, "vision_executor"):
+                self.node.vision_executor.active = True
+
+            # 🔥 SWITCH BACK TO RAW
+            if self.node and hasattr(self.node, "web_server"):
+                self.node.web_server.stream_source = "raw"
+
+            time.sleep(0.1)
     # =========================
     def _start_autonomous_process(self, command, mode_name):
-        self.stop_all()
+         self.stop_all()
 
         try:
+            # 🔥 STOP AI STREAM (publisher)
+            if self.node and hasattr(self.node, "vision_executor"):
+                self.node.vision_executor.active = False
+
+            # 🔥 SWITCH STREAM TO DEBUG
+            if self.node and hasattr(self.node, "web_server"):
+                self.node.web_server.stream_source = "debug"
+
             self.current_process = subprocess.Popen(
                 command,
                 start_new_session=True
             )
+
             self.current_mode = mode_name
+
         except Exception as e:
             self.current_process = None
             self.current_mode = "chat"
-            print(f"Failed to start {mode_name}: {e}")
+            print(f"Failed to start {mode_name}: {e}") 
 
     # =========================
     def _handle_move(self, direction, duration=1.5):
