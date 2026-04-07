@@ -75,7 +75,11 @@ function initRun() {
     if (img) {
         img.src = "/stream?" + new Date().getTime();
     }
-
+    
+    const voiceControl = document.getElementById("voiceControl");
+    if (voiceControl) {
+        voiceControl.classList.add("hidden");
+    }
     Joystick.init();
 
 }
@@ -86,8 +90,12 @@ else if (selected === "avoidance") {
 
     const img = document.getElementById("cameraFeed");
     if (img && !img.src.includes("/stream")) {
-    img.src = "/stream";
-}
+        img.src = "/stream";
+    }
+    const voiceControl = document.getElementById("voiceControl");
+    if (voiceControl) {
+        voiceControl.classList.add("hidden");
+    }
 
 }
 else if (selected === "ai") {
@@ -104,6 +112,10 @@ else if (selected === "ai") {
     if (img && !img.src.includes("/stream")) {
         img.src = "/stream";
     }
+    const voiceControl = document.getElementById("voiceControl");
+    if (voiceControl) {
+        voiceControl.classList.remove("hidden");
+    }
 }
 
 else if (selected === "scan_and_find") {
@@ -114,6 +126,10 @@ else if (selected === "scan_and_find") {
     const img = document.getElementById("cameraFeed");
     if (img && !img.src.includes("/stream")) {
         img.src = "/stream";
+    }
+    const voiceControl = document.getElementById("voiceControl");
+    if (voiceControl) {
+        voiceControl.classList.add("hidden");
     }
 }
 
@@ -136,7 +152,67 @@ else if (selected === "scan_and_find") {
     if (img) {
         img.src = "";
     }
+    const voiceControl = document.getElementById("voiceControl");
+    if (voiceControl) voiceControl.classList.add("hidden");
   });
+
+// =====================
+// VOICE RECORDING
+// =====================
+let mediaRecorder;
+let audioChunks = [];
+
+const recordBtn = document.getElementById("recordBtn");
+const voiceText = document.getElementById("voiceText");
+
+if (recordBtn) {
+
+  recordBtn.onclick = async () => {
+
+    if (!mediaRecorder || mediaRecorder.state === "inactive") {
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
+
+      mediaRecorder.ondataavailable = e => {
+        audioChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+
+        const blob = new Blob(audioChunks, { type: "audio/webm" });
+
+        const formData = new FormData();
+        formData.append("audio", blob);
+
+        const res = await fetch("/api/voice_command", {
+          method: "POST",
+          body: formData
+        });
+
+        const data = await res.json();
+
+        if (voiceText) {
+          voiceText.innerText = "Text: " + (data.text || "—");
+        }
+
+      };
+
+      mediaRecorder.start();
+      recordBtn.innerText = "⏹ Stop";
+
+    } else {
+
+      mediaRecorder.stop();
+      recordBtn.innerText = "🎤 Record";
+
+    }
+
+  };
+
+}
 
 }
 

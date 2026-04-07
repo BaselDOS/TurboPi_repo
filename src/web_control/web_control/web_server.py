@@ -8,12 +8,29 @@ from .api_control import register_control_routes
 from .api_status import register_status_routes
 from .api_stream import register_stream_routes
 
+from std_msgs.msg import String
 
 class WebServer:
 
     def __init__(self, node, pkg_share):
         self.node = node
         self.robot = node.robot
+        
+        self.robot = node.robot
+        self.voice_cmd_pub = node.create_publisher(
+            String,
+            "/voice_commands",
+            10
+        )
+        
+        
+
+        self.node.create_subscription(
+            String,
+            "/stream_mode",
+            self._stream_callback,
+            10
+        )
 
         self.battery_voltage = None
         self.last_battery_time = 0.0
@@ -56,6 +73,10 @@ class WebServer:
 
     def run_page(self):
         return render_template('run.html')
+    
+    def _stream_callback(self, msg):
+        self.stream_source = msg.data
+        print("🔥 STREAM SWITCHED TO:", msg.data)
 
     def _run_server(self):
         self.socketio.run(
