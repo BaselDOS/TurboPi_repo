@@ -3,11 +3,14 @@ import subprocess
 import threading
 from ament_index_python.packages import get_package_share_directory
 import os
+import wave
+
 from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import (
     RGBStates, RGBState,
     SetPWMServoState, PWMServoState
 )
+
 
 class SingController:
 
@@ -16,14 +19,25 @@ class SingController:
         self.rgb_pub = rgb_pub
         self.servo_pub = servo_pub
 
-        self.music_proc = None
+        self.audio_path = None
+
+    # =========================
+    def _get_audio_duration(self, path):
+        try:
+            with wave.open(path, 'r') as f:
+                frames = f.getnframes()
+                rate = f.getframerate()
+                return frames / float(rate)
+        except Exception as e:
+            print("Duration error:", e)
+            return 10.0  # fallback
 
     # =========================
     def _play_music(self):
         try:
             pkg_path = get_package_share_directory("web_control")
 
-            audio_path = os.path.join(
+            self.audio_path = os.path.join(
                 pkg_path,
                 "ai_modes",
                 "resources",
@@ -31,31 +45,25 @@ class SingController:
                 "Chamillionaire_Ridin.wav"
             )
 
-            print("Playing:", audio_path)
+            print("Playing:", self.audio_path)
 
             def run_audio():
                 try:
                     subprocess.run(
-                        ["aplay", audio_path],
+                        ["aplay", self.audio_path],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL
                     )
                 except Exception as e:
                     print("Audio error:", e)
 
-        # 🔥 RUN IN BACKGROUND THREAD
             threading.Thread(target=run_audio, daemon=True).start()
 
         except Exception as e:
             print("Audio error:", e)
 
     # =========================
-    def _stop_music(self):
-        if self.music_proc:
-            self.music_proc.terminate()
-
-    # =========================
-    def _move(self, ang_z=0.0, duration=0.4):
+    def _move(self, ang_z=0.0, duration=0.3):
         t = Twist()
         t.angular.z = ang_z
 
@@ -88,35 +96,42 @@ class SingController:
         # 🔥 start music
         self._play_music()
 
-        # =========================
-        # 🔥 LOOP (balanced speed)
-        # =========================
-        for _ in range(6):
+        # 🔥 get duration
+        duration = self._get_audio_duration(self.audio_path)
+        print("Song duration:", duration)
 
-            # LEDs change
+        start_time = time.time()
+
+        # =========================
+        # 🔥 LOOP UNTIL MUSIC ENDS
+        # =========================
+        while time.time() - start_time < duration:
+
+            # LED + rotate right
             self._led(255, 0, 0)
-            self._move(ang_z=1.5, duration=0.4)
+            self._move(ang_z=1.5, duration=0.3)
 
+            # LED + rotate left
             self._led(0, 0, 255)
-            self._move(ang_z=-1.5, duration=0.4)
+            self._move(ang_z=-1.5, duration=0.3)
 
+            # LED green
             self._led(0, 255, 0)
 
             # camera up/down
             self._servo(1, 1300)
-            time.sleep(0.15)
+            time.sleep(0.1)
             self._servo(1, 1700)
-            time.sleep(0.15)
+            time.sleep(0.1)
 
             # camera left/right
             self._servo(2, 1300)
-            time.sleep(0.15)
+            time.sleep(0.1)
             self._servo(2, 1700)
-            time.sleep(0.15)
+            time.sleep(0.1)
 
         # =========================
         # 🔥 finish
         # =========================
         self.cmd_pub.publish(Twist())
         self._led(255, 255, 255)
-        self._stop_music()
